@@ -54,8 +54,8 @@ export class GridRenderer {
       ctx.fillStyle = '#654321';
       ctx.fillRect(x - 2, y, 4, 8);
 
-      // Foliage (triangular)
-      ctx.fillStyle = '#228B22';
+      // Foliage (triangular) - darker green
+      ctx.fillStyle = '#2F5233';
       ctx.beginPath();
       ctx.moveTo(x, y - 12);
       ctx.lineTo(x - 8, y + 2);
@@ -75,20 +75,20 @@ export class GridRenderer {
       ctx.fillStyle = '#654321';
       ctx.fillRect(x - 2, y, 4, 6);
 
-      // Foliage (round)
-      ctx.fillStyle = '#32CD32';
+      // Foliage (round) - darker green
+      ctx.fillStyle = '#3D6B3D';
       ctx.beginPath();
       ctx.arc(x, y - 4, 8, 0, Math.PI * 2);
       ctx.fill();
 
-      // Highlight
-      ctx.fillStyle = '#90EE90';
+      // Highlight - slightly lighter
+      ctx.fillStyle = '#4A7C4A';
       ctx.beginPath();
       ctx.arc(x - 2, y - 6, 3, 0, Math.PI * 2);
       ctx.fill();
     } else {
-      // Bush
-      ctx.fillStyle = '#2E8B57';
+      // Bush - darker green
+      ctx.fillStyle = '#3A5F3A';
       ctx.beginPath();
       ctx.arc(x - 3, y, 4, 0, Math.PI * 2);
       ctx.fill();
@@ -115,16 +115,16 @@ export class GridRenderer {
 
     ctx.save();
 
-    // Draw grass field background
+    // Draw prairie grass field background (darker greens)
     const grassPattern = ctx.createLinearGradient(0, startY, 0, endY);
-    grassPattern.addColorStop(0, '#7CFC00');
-    grassPattern.addColorStop(0.5, '#90EE90');
-    grassPattern.addColorStop(1, '#7CFC00');
+    grassPattern.addColorStop(0, '#567D46');
+    grassPattern.addColorStop(0.5, '#6B8E55');
+    grassPattern.addColorStop(1, '#567D46');
     ctx.fillStyle = grassPattern;
     ctx.fillRect(startX - gridSize, startY - gridSize, endX - startX + gridSize * 2, endY - startY + gridSize * 2);
 
     // Add grass texture (small random patches)
-    ctx.fillStyle = 'rgba(50, 205, 50, 0.3)';
+    ctx.fillStyle = 'rgba(74, 103, 65, 0.3)';
     const random = (x: number, y: number) => {
       const value = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
       return value - Math.floor(value);

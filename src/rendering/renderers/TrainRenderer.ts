@@ -50,16 +50,16 @@ export class TrainRenderer {
     // Draw old-fashioned steam locomotive
     this.drawSteamLocomotive(ctx, -halfLength, -halfWidth, train.length, train.width);
 
-    // Draw steam puffs if moving
+    // Draw steam puffs if moving (from the smokestack at front)
     if (Math.abs(train.velocity) > 1) {
-      this.drawSteamPuffs(ctx, halfLength, -halfWidth - 8, train.velocity);
+      this.drawSteamPuffs(ctx, halfLength - 8, 0, train.velocity);
     }
 
     ctx.restore();
   }
 
   /**
-   * Draw a pixel art steam locomotive
+   * Draw a pixel art steam locomotive from above (top-down view)
    */
   private drawSteamLocomotive(
     ctx: CanvasRenderingContext2D,
@@ -68,87 +68,79 @@ export class TrainRenderer {
     length: number,
     width: number
   ): void {
-    // Boiler (main body) - dark red
+    // Main boiler body (dark red with rounded front)
     ctx.fillStyle = '#8B0000';
-    ctx.fillRect(x + 8, y + 2, length - 16, width - 4);
+    ctx.fillRect(x + 4, y, length - 14, width);
+
+    // Rounded boiler front
+    ctx.beginPath();
+    ctx.arc(x + length - 14, y + width / 2, width / 2, -Math.PI / 2, Math.PI / 2);
+    ctx.fill();
 
     // Boiler outline
     ctx.strokeStyle = '#4B0000';
     ctx.lineWidth = 1;
-    ctx.strokeRect(x + 8, y + 2, length - 16, width - 4);
+    ctx.strokeRect(x + 4, y, length - 14, width);
+    ctx.beginPath();
+    ctx.arc(x + length - 14, y + width / 2, width / 2, -Math.PI / 2, Math.PI / 2);
+    ctx.stroke();
 
-    // Cab (driver's compartment) - dark blue
+    // Cab (driver's compartment at back) - dark blue
     ctx.fillStyle = '#00008B';
-    ctx.fillRect(x, y + 1, 10, width - 2);
+    ctx.fillRect(x, y + width * 0.2, 6, width * 0.6);
 
-    // Cab window
+    // Cab outline
+    ctx.strokeStyle = '#000066';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y + width * 0.2, 6, width * 0.6);
+
+    // Cab windows (two small light blue squares)
     ctx.fillStyle = '#87CEEB';
-    ctx.fillRect(x + 2, y + 3, 3, 3);
+    ctx.fillRect(x + 1, y + width * 0.3, 2, 2);
+    ctx.fillRect(x + 1, y + width * 0.65, 2, 2);
 
-    // Smokestack
+    // Smokestack (circular, dark gray)
     ctx.fillStyle = '#2F4F4F';
-    ctx.fillRect(x + length - 10, y - 2, 4, 6);
+    ctx.beginPath();
+    ctx.arc(x + length - 8, y + width / 2, 3, 0, Math.PI * 2);
+    ctx.fill();
 
-    // Smokestack top (wider)
-    ctx.fillStyle = '#2F4F4F';
-    ctx.fillRect(x + length - 11, y - 3, 6, 2);
+    // Smokestack rim (lighter)
+    ctx.strokeStyle = '#556B6B';
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
-    // Cowcatcher (front pilot)
+    // Cowcatcher at front (triangular wedge)
     ctx.fillStyle = '#696969';
     ctx.beginPath();
-    ctx.moveTo(x + length - 4, y + width / 2);
-    ctx.lineTo(x + length + 2, y + width - 2);
-    ctx.lineTo(x + length + 2, y + 2);
+    ctx.moveTo(x + length - 14, y + width * 0.3);
+    ctx.lineTo(x + length - 14, y + width * 0.7);
+    ctx.lineTo(x + length - 8, y + width / 2);
     ctx.closePath();
     ctx.fill();
 
-    // Wheels (2 big wheels)
-    const wheelY = y + width;
-    const wheel1X = x + 10;
-    const wheel2X = x + length - 14;
-    const wheelRadius = 3;
+    // Cowcatcher outline
+    ctx.strokeStyle = '#404040';
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
-    // Wheel 1
-    ctx.fillStyle = '#000000';
-    ctx.beginPath();
-    ctx.arc(wheel1X, wheelY, wheelRadius, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Wheel 1 center
-    ctx.fillStyle = '#696969';
-    ctx.beginPath();
-    ctx.arc(wheel1X, wheelY, wheelRadius - 1, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Wheel 2
-    ctx.fillStyle = '#000000';
-    ctx.beginPath();
-    ctx.arc(wheel2X, wheelY, wheelRadius, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Wheel 2 center
-    ctx.fillStyle = '#696969';
-    ctx.beginPath();
-    ctx.arc(wheel2X, wheelY, wheelRadius - 1, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Boiler bands (decorative stripes)
+    // Boiler bands (decorative stripes across)
     ctx.strokeStyle = '#FFD700';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(x + 15, y + 2);
-    ctx.lineTo(x + 15, y + width - 2);
+    ctx.moveTo(x + 10, y);
+    ctx.lineTo(x + 10, y + width);
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.moveTo(x + length - 16, y + 2);
-    ctx.lineTo(x + length - 16, y + width - 2);
+    ctx.moveTo(x + length - 20, y);
+    ctx.lineTo(x + length - 20, y + width);
     ctx.stroke();
 
-    // Headlamp
+    // Headlamp at front
     ctx.fillStyle = '#FFFF00';
     ctx.beginPath();
-    ctx.arc(x + length - 6, y + width / 2, 2, 0, Math.PI * 2);
+    ctx.arc(x + length - 10, y + width / 2, 1.5, 0, Math.PI * 2);
     ctx.fill();
   }
 
