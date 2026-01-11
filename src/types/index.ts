@@ -19,10 +19,13 @@ export type RailOrientation =
   | 'curve-sw'    // South-West (top-right to bottom-left)
   | 'curve-wn';   // West-North (bottom-right to top-left)
 
+// Grid cell side (for drag-based drawing)
+export type Side = 'north' | 'south' | 'east' | 'west';
+
 // Tool types
 export type ToolType =
   | { type: 'select' }
-  | { type: 'track'; orientation: RailOrientation }
+  | { type: 'track'; orientation?: RailOrientation } // orientation optional for drag-based drawing
   | { type: 'switch' }
   | { type: 'station' }
   | { type: 'signal' }

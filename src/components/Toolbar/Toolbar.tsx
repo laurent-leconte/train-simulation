@@ -12,9 +12,6 @@ export function Toolbar() {
   const clearCircuit = useStore((state) => state.clearCircuit);
 
   const isToolActive = (tool: ToolType) => {
-    if (tool.type === 'track' && selectedTool.type === 'track') {
-      return tool.orientation === selectedTool.orientation;
-    }
     return tool.type === selectedTool.type;
   };
 
@@ -68,49 +65,11 @@ export function Toolbar() {
 
             <div className="flex gap-2 border-r border-gray-700 pr-3">
               <button
-                onClick={() => setSelectedTool({ type: 'track', orientation: 'horizontal' })}
-                className={getButtonClass({ type: 'track', orientation: 'horizontal' })}
-                title="Rail horizontal"
+                onClick={() => setSelectedTool({ type: 'track' })}
+                className={getButtonClass({ type: 'track' })}
+                title="Tracer des rails (cliquer-glisser)"
               >
-                ─ Horizontal
-              </button>
-              <button
-                onClick={() => setSelectedTool({ type: 'track', orientation: 'vertical' })}
-                className={getButtonClass({ type: 'track', orientation: 'vertical' })}
-                title="Rail vertical"
-              >
-                │ Vertical
-              </button>
-            </div>
-
-            <div className="flex gap-2 border-r border-gray-700 pr-3">
-              <button
-                onClick={() => setSelectedTool({ type: 'track', orientation: 'curve-ne' })}
-                className={getButtonClass({ type: 'track', orientation: 'curve-ne' })}
-                title="Courbe Nord-Est"
-              >
-                ╰ NE
-              </button>
-              <button
-                onClick={() => setSelectedTool({ type: 'track', orientation: 'curve-es' })}
-                className={getButtonClass({ type: 'track', orientation: 'curve-es' })}
-                title="Courbe Est-Sud"
-              >
-                ╭ ES
-              </button>
-              <button
-                onClick={() => setSelectedTool({ type: 'track', orientation: 'curve-sw' })}
-                className={getButtonClass({ type: 'track', orientation: 'curve-sw' })}
-                title="Courbe Sud-Ouest"
-              >
-                ╮ SW
-              </button>
-              <button
-                onClick={() => setSelectedTool({ type: 'track', orientation: 'curve-wn' })}
-                className={getButtonClass({ type: 'track', orientation: 'curve-wn' })}
-                title="Courbe Ouest-Nord"
-              >
-                ╯ WN
+                🛤️ Rail
               </button>
             </div>
 

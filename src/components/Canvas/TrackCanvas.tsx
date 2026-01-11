@@ -8,17 +8,36 @@ import { TrainRenderer } from '@/rendering/renderers/TrainRenderer';
 import { GridCircuitBuilder } from '@/services/GridCircuitBuilder';
 import { TrainPhysics } from '@/services/TrainPhysics';
 import { TrainPathFollower } from '@/services/TrainPathFollower';
+import { TrackDrawingHelper, Side } from '@/services/TrackDrawingHelper';
 import { Train, DEFAULT_TRAIN_SETTINGS } from '@/types/train.types';
 import { nanoid } from 'nanoid';
 
 /**
  * Main canvas component for track editing and simulation
  */
+/**
+ * Drag state for track drawing
+ */
+interface DragState {
+  isDrawing: boolean;
+  startCell: { gridX: number; gridY: number } | null;
+  lastCell: { gridX: number; gridY: number } | null;
+  entrySide: Side | null;
+  visitedCells: Set<string>;
+}
+
 export function TrackCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [lastMousePos, setLastMousePos] = useState<Vector2D>(Vector2D.zero());
   const [hoveredGridCell, setHoveredGridCell] = useState<{ gridX: number; gridY: number } | null>(null);
+  const [dragState, setDragState] = useState<DragState>({
+    isDrawing: false,
+    startCell: null,
+    lastCell: null,
+    entrySide: null,
+    visitedCells: new Set(),
+  });
 
   const gridRendererRef = useRef(new GridRenderer());
   const trackRendererRef = useRef(new TrackRenderer());
@@ -164,8 +183,8 @@ export function TrackCanvas() {
     // Render trains
     trainRendererRef.current.renderAll(simulation.trains, renderCtx, selectedElement);
 
-    // Render hovered grid cell highlight with track preview
-    if (hoveredGridCell && mode === 'edit' && selectedTool.type === 'track') {
+    // Render hovered grid cell highlight (for drag-based track drawing)
+    if (hoveredGridCell && mode === 'edit' && selectedTool.type === 'track' && !dragState.isDrawing) {
       ctx.save();
       ctx.fillStyle = 'rgba(96, 165, 250, 0.15)';
       ctx.strokeStyle = 'rgba(96, 165, 250, 0.4)';
@@ -174,20 +193,9 @@ export function TrackCanvas() {
       const cellX = hoveredGridCell.gridX * gridSize;
       const cellY = hoveredGridCell.gridY * gridSize;
 
-      // Draw cell highlight
+      // Draw cell highlight only (no track preview since orientation is determined by drag)
       ctx.fillRect(cellX, cellY, gridSize, gridSize);
       ctx.strokeRect(cellX, cellY, gridSize, gridSize);
-
-      // Get the geometry for the selected track orientation
-      const { geometry } = GridCircuitBuilder.getGeometryForOrientation(
-        selectedTool.orientation,
-        cellX,
-        cellY,
-        gridSize
-      );
-
-      // Render preview of the track
-      trackRendererRef.current.renderPreview(geometry, ctx);
 
       ctx.restore();
     }
@@ -235,7 +243,7 @@ export function TrackCanvas() {
     [viewport.zoom, setViewportZoom]
   );
 
-  // Handle canvas click for placing tracks
+  // Handle canvas click for delete tool
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (mode !== 'edit') return;
@@ -252,42 +260,7 @@ export function TrackCanvas() {
       // Convert to grid coordinates
       const { gridX, gridY } = GridCircuitBuilder.worldToGrid(worldPos, gridSize);
 
-      if (selectedTool.type === 'track') {
-        try {
-          // Check if track already exists at this position
-          if (GridCircuitBuilder.trackExistsAt(gridX, gridY, circuitGraph.edges)) {
-            console.log('Track already exists at this position');
-            return;
-          }
-
-          // Create mutable copy of nodes map
-          const nodesCopy = new Map();
-          circuitGraph.nodes.forEach((node, key) => {
-            nodesCopy.set(key, {
-              ...node,
-              position: new Vector2D(node.position.x, node.position.y),
-              connectedSegments: [...node.connectedSegments],
-            });
-          });
-
-          // Create track at grid position
-          const result = GridCircuitBuilder.createGridTrack(
-            gridX,
-            gridY,
-            selectedTool.orientation,
-            gridSize,
-            nodesCopy
-          );
-
-          // Update the store
-          useStore.setState((state) => {
-            state.circuit.graph.nodes = nodesCopy;
-            state.circuit.graph.edges.set(result.segment.id, result.segment);
-          });
-        } catch (error) {
-          console.error('Failed to create track:', error);
-        }
-      } else if (selectedTool.type === 'delete') {
+      if (selectedTool.type === 'delete') {
         // Delete track at clicked position
         const track = GridCircuitBuilder.getTrackAt(gridX, gridY, circuitGraph.edges);
         if (track) {
@@ -301,11 +274,39 @@ export function TrackCanvas() {
     [mode, selectedTool, viewport, gridSize, circuitGraph]
   );
 
-  // Mouse down handler (start panning or handle clicks)
+  // Mouse down handler (start dragging for track tool, or panning)
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
-      // If we're drawing, let the click handler manage it
+      // If we're in edit mode with track tool, start drag-based drawing
       if (mode === 'edit' && selectedTool.type === 'track' && e.button === 0) {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const screenPos = new Vector2D(e.clientX - rect.left, e.clientY - rect.top);
+        const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height);
+        const worldPos = renderCtx.screenToWorld(screenPos);
+
+        // Convert to grid coordinates
+        const { gridX, gridY } = GridCircuitBuilder.worldToGrid(worldPos, gridSize);
+
+        // Detect entry side
+        const entrySide = TrackDrawingHelper.detectSide(worldPos, gridX, gridY, gridSize);
+
+        // Start drawing
+        setDragState({
+          isDrawing: true,
+          startCell: { gridX, gridY },
+          lastCell: { gridX, gridY },
+          entrySide,
+          visitedCells: new Set([`${gridX},${gridY}`]),
+        });
+
+        return;
+      }
+
+      // Handle delete tool
+      if (mode === 'edit' && selectedTool.type === 'delete' && e.button === 0) {
         handleClick(e);
         return;
       }
@@ -372,7 +373,7 @@ export function TrackCanvas() {
     [mode, selectedTool, handleClick, viewport, circuitGraph, simulation.trains, addTrain, setSimulationRunning]
   );
 
-  // Mouse move handler (pan and update hover)
+  // Mouse move handler (drag drawing, pan, and update hover)
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       const canvas = canvasRef.current;
@@ -383,8 +384,87 @@ export function TrackCanvas() {
       const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height);
       const worldPos = renderCtx.screenToWorld(screenPos);
 
-      // Update hovered grid cell
+      // Convert to grid coordinates
       const { gridX, gridY } = GridCircuitBuilder.worldToGrid(worldPos, gridSize);
+
+      // Handle drag-based track drawing
+      if (dragState.isDrawing) {
+        // Check if we've moved to a new cell
+        if (dragState.lastCell &&
+            (gridX !== dragState.lastCell.gridX || gridY !== dragState.lastCell.gridY)) {
+
+          // Check if cells are adjacent
+          const isAdjacent = TrackDrawingHelper.areAdjacent(
+            dragState.lastCell,
+            { gridX, gridY }
+          );
+
+          if (isAdjacent) {
+            // Detect exit side from previous cell
+            const exitSide = TrackDrawingHelper.detectSide(
+              worldPos,
+              dragState.lastCell.gridX,
+              dragState.lastCell.gridY,
+              gridSize
+            );
+
+            // Determine track orientation
+            const orientation = TrackDrawingHelper.getTrackOrientation(dragState.entrySide!, exitSide);
+
+            const prevCellKey = `${dragState.lastCell.gridX},${dragState.lastCell.gridY}`;
+
+            if (orientation && !dragState.visitedCells.has(prevCellKey)) {
+              // Check if track already exists
+              if (!GridCircuitBuilder.trackExistsAt(dragState.lastCell.gridX, dragState.lastCell.gridY, circuitGraph.edges)) {
+                try {
+                  // Create mutable copy of nodes map
+                  const nodesCopy = new Map();
+                  circuitGraph.nodes.forEach((node, key) => {
+                    nodesCopy.set(key, {
+                      ...node,
+                      position: new Vector2D(node.position.x, node.position.y),
+                      connectedSegments: [...node.connectedSegments],
+                    });
+                  });
+
+                  // Create track at grid position
+                  const result = GridCircuitBuilder.createGridTrack(
+                    dragState.lastCell.gridX,
+                    dragState.lastCell.gridY,
+                    orientation,
+                    gridSize,
+                    nodesCopy
+                  );
+
+                  // Update the store
+                  useStore.setState((state) => {
+                    state.circuit.graph.nodes = nodesCopy;
+                    state.circuit.graph.edges.set(result.segment.id, result.segment);
+                  });
+                } catch (error) {
+                  console.error('Failed to create track during drag:', error);
+                }
+              }
+
+              // Mark cell as visited
+              dragState.visitedCells.add(prevCellKey);
+            }
+
+            // Entry side for new cell is opposite of exit side from previous cell
+            const newEntrySide = TrackDrawingHelper.getOppositeSide(exitSide);
+
+            setDragState({
+              ...dragState,
+              lastCell: { gridX, gridY },
+              entrySide: newEntrySide,
+            });
+          }
+        }
+
+        return; // Skip hover and panning when drawing
+      }
+
+      // Update hovered grid cell (only when not drawing)
       setHoveredGridCell({ gridX, gridY });
 
       const currentPos = new Vector2D(e.clientX, e.clientY);
@@ -397,18 +477,98 @@ export function TrackCanvas() {
         setLastMousePos(currentPos);
       }
     },
-    [isPanning, lastMousePos, viewport, adjustViewportPan, gridSize]
+    [isPanning, lastMousePos, viewport, adjustViewportPan, gridSize, dragState, circuitGraph]
   );
 
-  // Mouse up handler (stop panning)
-  const handleMouseUp = useCallback(() => {
-    setIsPanning(false);
-  }, []);
+  // Mouse up handler (finish drawing and stop panning)
+  const handleMouseUp = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      // Handle final track placement when drag drawing
+      if (dragState.isDrawing && dragState.lastCell) {
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const rect = canvas.getBoundingClientRect();
+          const screenPos = new Vector2D(e.clientX - rect.left, e.clientY - rect.top);
+          const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height);
+          const worldPos = renderCtx.screenToWorld(screenPos);
 
-  // Mouse leave handler (stop panning)
+          // Detect exit side for the final cell
+          const exitSide = TrackDrawingHelper.detectSide(
+            worldPos,
+            dragState.lastCell.gridX,
+            dragState.lastCell.gridY,
+            gridSize
+          );
+
+          // Determine track orientation
+          const orientation = TrackDrawingHelper.getTrackOrientation(dragState.entrySide!, exitSide);
+
+          const lastCellKey = `${dragState.lastCell.gridX},${dragState.lastCell.gridY}`;
+
+          if (orientation && !dragState.visitedCells.has(lastCellKey)) {
+            // Check if track already exists
+            if (!GridCircuitBuilder.trackExistsAt(dragState.lastCell.gridX, dragState.lastCell.gridY, circuitGraph.edges)) {
+              try {
+                // Create mutable copy of nodes map
+                const nodesCopy = new Map();
+                circuitGraph.nodes.forEach((node, key) => {
+                  nodesCopy.set(key, {
+                    ...node,
+                    position: new Vector2D(node.position.x, node.position.y),
+                    connectedSegments: [...node.connectedSegments],
+                  });
+                });
+
+                // Create track at grid position
+                const result = GridCircuitBuilder.createGridTrack(
+                  dragState.lastCell.gridX,
+                  dragState.lastCell.gridY,
+                  orientation,
+                  gridSize,
+                  nodesCopy
+                );
+
+                // Update the store
+                useStore.setState((state) => {
+                  state.circuit.graph.nodes = nodesCopy;
+                  state.circuit.graph.edges.set(result.segment.id, result.segment);
+                });
+              } catch (error) {
+                console.error('Failed to create final track:', error);
+              }
+            }
+          }
+        }
+
+        // Reset drag state
+        setDragState({
+          isDrawing: false,
+          startCell: null,
+          lastCell: null,
+          entrySide: null,
+          visitedCells: new Set(),
+        });
+      }
+
+      setIsPanning(false);
+    },
+    [dragState, viewport, gridSize, circuitGraph]
+  );
+
+  // Mouse leave handler (stop drawing and panning)
   const handleMouseLeave = useCallback(() => {
+    // Stop drawing if leaving canvas
+    if (dragState.isDrawing) {
+      setDragState({
+        isDrawing: false,
+        startCell: null,
+        lastCell: null,
+        entrySide: null,
+        visitedCells: new Set(),
+      });
+    }
     setIsPanning(false);
-  }, []);
+  }, [dragState.isDrawing]);
 
   // Right click handler (prevent context menu)
   const handleContextMenu = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
