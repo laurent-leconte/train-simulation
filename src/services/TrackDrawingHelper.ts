@@ -91,4 +91,89 @@ export class TrackDrawingHelper {
       !(cell1.gridX === cell2.gridX && cell1.gridY === cell2.gridY)
     );
   }
+
+  /**
+   * Get all cells between two grid positions using Bresenham's line algorithm.
+   * Returns cells in order from start to end (excluding start, including end).
+   */
+  static getTraversedCells(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number
+  ): Array<{ gridX: number; gridY: number }> {
+    const cells: Array<{ gridX: number; gridY: number }> = [];
+
+    // If same cell, return empty
+    if (fromX === toX && fromY === toY) {
+      return cells;
+    }
+
+    const dx = Math.abs(toX - fromX);
+    const dy = Math.abs(toY - fromY);
+    const sx = fromX < toX ? 1 : -1;
+    const sy = fromY < toY ? 1 : -1;
+
+    let err = dx - dy;
+    let x = fromX;
+    let y = fromY;
+
+    while (true) {
+      // Move to next cell
+      const e2 = 2 * err;
+
+      if (e2 > -dy) {
+        err -= dy;
+        x += sx;
+      }
+      if (e2 < dx) {
+        err += dx;
+        y += sy;
+      }
+
+      cells.push({ gridX: x, gridY: y });
+
+      if (x === toX && y === toY) break;
+    }
+
+    return cells;
+  }
+
+  /**
+   * Determine the exit side when moving from one cell to an adjacent cell.
+   * Based purely on the direction of movement.
+   */
+  static getExitSideFromDirection(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number
+  ): Side {
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+
+    // Prioritize horizontal/vertical movement
+    if (Math.abs(dx) > Math.abs(dy)) {
+      return dx > 0 ? 'east' : 'west';
+    } else if (Math.abs(dy) > Math.abs(dx)) {
+      return dy > 0 ? 'south' : 'north';
+    } else {
+      // Diagonal - prefer horizontal
+      return dx > 0 ? 'east' : 'west';
+    }
+  }
+
+  /**
+   * Determine the entry side when moving from one cell to an adjacent cell.
+   * This is the opposite of the exit side from the previous cell.
+   */
+  static getEntrySideFromDirection(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number
+  ): Side {
+    const exitSide = this.getExitSideFromDirection(fromX, fromY, toX, toY);
+    return this.getOppositeSide(exitSide);
+  }
 }
