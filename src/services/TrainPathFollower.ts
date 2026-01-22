@@ -266,6 +266,9 @@ export class TrainPathFollower {
 
     if (carriageCount === 0) return positions;
 
+    // Get the locomotive's direction of travel
+    const locoDirection = locomotivePosition.direction;
+
     // Start from behind the locomotive
     // Distance behind locomotive center to first carriage center
     let distanceBehind = locomotiveLength / 2 + carriageGap + carriageLength / 2;
@@ -280,9 +283,18 @@ export class TrainPathFollower {
       );
 
       if (carriagePos) {
+        // Ensure carriage direction aligns with locomotive direction
+        // (they should point the same way, not opposite)
+        let direction = carriagePos.direction;
+        const dot = direction.x * locoDirection.x + direction.y * locoDirection.y;
+        if (dot < 0) {
+          // Direction is opposite to locomotive, flip it
+          direction = direction.multiply(-1);
+        }
+
         positions.push({
           worldPosition: carriagePos.worldPosition,
-          direction: carriagePos.direction,
+          direction,
         });
       } else {
         // If we can't place this carriage, use last known position offset
@@ -308,6 +320,7 @@ export class TrainPathFollower {
   /**
    * Move along track without switch logic (for carriage positioning)
    * This traces backward along the path the train came from
+   * Returns raw track direction (caller should align with locomotive direction)
    */
   private static moveAlongTrackSimple(
     startPosition: TrainPosition,
@@ -333,7 +346,8 @@ export class TrainPathFollower {
 
       // Check if we're within the current segment
       if (currentDistance >= 0 && currentDistance <= segment.length) {
-        return this.calculatePosition(segment, currentDistance, currentReversed);
+        // Return raw track direction (without reversal - caller will align)
+        return this.calculatePosition(segment, currentDistance, false);
       }
 
       // Moving past segment boundary
@@ -357,7 +371,7 @@ export class TrainPathFollower {
       if (!nextSegmentId) {
         // End of track - return position at boundary
         const clampedDistance = exitingFromStart ? 0 : segment.length;
-        return this.calculatePosition(segment, clampedDistance, currentReversed);
+        return this.calculatePosition(segment, clampedDistance, false);
       }
 
       const nextSegment = segments.get(nextSegmentId);
