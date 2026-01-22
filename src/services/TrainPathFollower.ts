@@ -1,5 +1,5 @@
 import { Vector2D } from '@/core/geometry/Vector2D';
-import { TrackSegment, TrackNode, StraightGeometry, CurveGeometry } from '@/types/circuit.types';
+import { TrackSegment, TrackNode, StraightGeometry, CurveGeometry, Switch } from '@/types/circuit.types';
 import { TrainPosition } from '@/types/train.types';
 import {
   evaluateCubicBezier,
@@ -101,7 +101,8 @@ export class TrainPathFollower {
     currentPosition: TrainPosition,
     deltaDistance: number,
     segments: Map<string, TrackSegment>,
-    nodes: Map<string, TrackNode>
+    nodes: Map<string, TrackNode>,
+    switches?: Map<string, Switch>
   ): TrainPosition | null {
     let currentSegmentId = currentPosition.segmentId;
     let currentReversed = currentPosition.reversed;
@@ -140,8 +141,8 @@ export class TrainPathFollower {
         const exitingFromStart = currentDistance < 0;
         const exitNodeId = exitingFromStart ? segment.startNode : segment.endNode;
 
-        // Find next segment
-        const nextSegmentId = this.findNextSegment(segment, exitingFromStart, segments, nodes);
+        // Find next segment (respecting switch positions if available)
+        const nextSegmentId = this.findNextSegment(segment, exitingFromStart, segments, nodes, switches);
 
         if (!nextSegmentId) {
           // No next segment - clamp to boundary
@@ -185,13 +186,14 @@ export class TrainPathFollower {
 
   /**
    * Find the next segment connected to the current one
-   * For now, returns the first available connected segment
+   * Respects switch positions when available
    */
   static findNextSegment(
     currentSegment: TrackSegment,
     atStart: boolean,
     segments: Map<string, TrackSegment>,
-    nodes: Map<string, TrackNode>
+    nodes: Map<string, TrackNode>,
+    switches?: Map<string, Switch>
   ): string | null {
     // Get the node at the end we're trying to leave from
     const nodeId = atStart ? currentSegment.startNode : currentSegment.endNode;
@@ -199,6 +201,28 @@ export class TrainPathFollower {
 
     if (!node) return null;
 
+    // Check if there's a switch at this node
+    if (switches) {
+      for (const sw of switches.values()) {
+        if (sw.nodeId === nodeId) {
+          // Found a switch at this node
+          // If we're coming from the incoming track, use switch position to choose outgoing
+          if (currentSegment.id === sw.incomingTrack) {
+            const nextSegmentId = sw.outgoingTracks[sw.currentPosition];
+            console.log(`Switch at node ${nodeId}: taking outgoing track ${sw.currentPosition} -> ${nextSegmentId}`);
+            return nextSegmentId;
+          }
+
+          // If we're coming from one of the outgoing tracks, go to incoming
+          if (sw.outgoingTracks.includes(currentSegment.id)) {
+            console.log(`Switch at node ${nodeId}: coming from outgoing, going to incoming -> ${sw.incomingTrack}`);
+            return sw.incomingTrack;
+          }
+        }
+      }
+    }
+
+    // No switch or switch doesn't affect this path - use default logic
     // Find other segments connected to this node
     for (const segmentId of node.connectedSegments) {
       if (segmentId !== currentSegment.id) {

@@ -5,12 +5,14 @@ import { RenderingContext } from '@/rendering/RenderingContext';
 import { GridRenderer } from '@/rendering/GridRenderer';
 import { TrackRenderer } from '@/rendering/renderers/TrackRenderer';
 import { TrainRenderer } from '@/rendering/renderers/TrainRenderer';
+import { SwitchRenderer } from '@/rendering/renderers/SwitchRenderer';
 import { GridCircuitBuilder } from '@/services/GridCircuitBuilder';
 import { TrainPhysics } from '@/services/TrainPhysics';
 import { TrainPathFollower } from '@/services/TrainPathFollower';
 import { TrackDrawingHelper, Side } from '@/services/TrackDrawingHelper';
 import { RailOrientation } from '@/types';
 import { Train, DEFAULT_TRAIN_SETTINGS } from '@/types/train.types';
+import { Switch } from '@/types/circuit.types';
 import { nanoid } from 'nanoid';
 
 /**
@@ -45,6 +47,7 @@ export function TrackCanvas() {
   const gridRendererRef = useRef(new GridRenderer());
   const trackRendererRef = useRef(new TrackRenderer());
   const trainRendererRef = useRef(new TrainRenderer());
+  const switchRendererRef = useRef(new SwitchRenderer());
 
   // Store selectors
   const viewport = useStore((state) => state.ui.viewport);
@@ -64,6 +67,9 @@ export function TrackCanvas() {
   const setSelectedElement = useStore((state) => state.setSelectedElement);
   const addTrain = useStore((state) => state.addTrain);
   const setSimulationRunning = useStore((state) => state.setSimulationRunning);
+  const addSwitch = useStore((state) => state.addSwitch);
+  const updateSwitch = useStore((state) => state.updateSwitch);
+  const removeSwitch = useStore((state) => state.removeSwitch);
 
   // Setup canvas
   useEffect(() => {
@@ -131,12 +137,13 @@ export function TrackCanvas() {
           },
         };
 
-        // Update the train
+        // Update the train (pass switches for routing decisions)
         TrainPhysics.updateTrain(
           trainCopy,
           adjustedDelta,
           circuitGraph.edges,
-          circuitGraph.nodes
+          circuitGraph.nodes,
+          circuitGraph.switches
         );
 
         // Update store
@@ -182,6 +189,15 @@ export function TrackCanvas() {
 
     // Render nodes
     trackRendererRef.current.renderNodes(circuitGraph.nodes, renderCtx, selectedElement);
+
+    // Render switches
+    switchRendererRef.current.renderAll(
+      circuitGraph.switches,
+      circuitGraph.nodes,
+      circuitGraph.edges,
+      renderCtx,
+      selectedElement
+    );
 
     // Render trains
     trainRendererRef.current.renderAll(simulation.trains, renderCtx, selectedElement);
@@ -339,9 +355,95 @@ export function TrackCanvas() {
     [mode, selectedTool, viewport, gridSize, circuitGraph]
   );
 
+  // Helper to find a junction node near a world position
+  const findJunctionNodeAt = useCallback(
+    (worldPos: Vector2D): string | null => {
+      for (const [nodeId, node] of circuitGraph.nodes) {
+        // Check if this node has 3+ connected segments (junction)
+        if (node.connectedSegments.length >= 3) {
+          const distance = worldPos.distanceTo(node.position);
+          if (distance < 20) { // 20px click radius
+            return nodeId;
+          }
+        }
+      }
+      return null;
+    },
+    [circuitGraph.nodes]
+  );
+
+  // Helper to create a switch at a junction node
+  const createSwitchAtNode = useCallback(
+    (nodeId: string) => {
+      const node = circuitGraph.nodes.get(nodeId);
+      if (!node || node.connectedSegments.length < 3) return;
+
+      // Check if switch already exists at this node
+      for (const sw of circuitGraph.switches.values()) {
+        if (sw.nodeId === nodeId) {
+          console.log('Switch already exists at this node');
+          return;
+        }
+      }
+
+      // Get connected segments
+      const segments = node.connectedSegments;
+
+      // Create switch: first segment is incoming, next two are outgoing options
+      const newSwitch: Switch = {
+        id: nanoid(),
+        nodeId,
+        incomingTrack: segments[0],
+        outgoingTracks: [segments[1], segments[2]],
+        currentPosition: 0,
+        type: 'left', // Default type
+      };
+
+      addSwitch(newSwitch);
+      console.log('Created switch:', newSwitch);
+    },
+    [circuitGraph.nodes, circuitGraph.switches, addSwitch]
+  );
+
   // Mouse down handler (start dragging for track tool, or panning)
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      // Handle switch tool - place or toggle switch
+      if (mode === 'edit' && selectedTool.type === 'switch' && e.button === 0) {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const screenPos = new Vector2D(e.clientX - rect.left, e.clientY - rect.top);
+        const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height);
+        const worldPos = renderCtx.screenToWorld(screenPos);
+
+        // First check if clicking on existing switch to toggle it
+        const existingSwitch = SwitchRenderer.findSwitchAt(
+          worldPos,
+          circuitGraph.switches,
+          circuitGraph.nodes
+        );
+
+        if (existingSwitch) {
+          // Toggle the switch position
+          const newPosition = existingSwitch.currentPosition === 0 ? 1 : 0;
+          updateSwitch(existingSwitch.id, newPosition);
+          console.log('Toggled switch to position:', newPosition);
+          return;
+        }
+
+        // Otherwise, try to create a new switch at a junction node
+        const junctionNodeId = findJunctionNodeAt(worldPos);
+        if (junctionNodeId) {
+          createSwitchAtNode(junctionNodeId);
+        } else {
+          console.log('No junction node found at click position (need node with 3+ tracks)');
+        }
+
+        return;
+      }
+
       // If we're in edit mode with track tool, start drag-based drawing
       if (mode === 'edit' && selectedTool.type === 'track' && e.button === 0) {
         const canvas = canvasRef.current;
@@ -355,16 +457,36 @@ export function TrackCanvas() {
         // Convert to grid coordinates
         const { gridX, gridY } = GridCircuitBuilder.worldToGrid(worldPos, gridSize);
 
-        // Detect entry side
-        const entrySide = TrackDrawingHelper.detectSide(worldPos, gridX, gridY, gridSize);
+        // Check if starting on an existing track - if so, detect which edge to branch from
+        let initialEntrySide: Side | null = null;
+        const existingTracks = Array.from(circuitGraph.edges.values()).filter(
+          seg => seg.gridX === gridX && seg.gridY === gridY
+        );
 
-        // Start drawing
+        if (existingTracks.length > 0) {
+          // Find which edge of the existing track(s) we're closest to
+          const existingEdges = new Set<string>();
+          for (const track of existingTracks) {
+            const edges = GridCircuitBuilder.getEdgesForOrientation(track.orientation);
+            edges.forEach(e => existingEdges.add(e));
+          }
+
+          // Find closest edge that belongs to an existing track
+          const clickedSide = TrackDrawingHelper.detectSide(worldPos, gridX, gridY, gridSize);
+
+          if (existingEdges.has(clickedSide)) {
+            // User clicked near an edge that has a track endpoint
+            // Set this as the entry side - the new track will branch from here
+            initialEntrySide = clickedSide;
+          }
+        }
+
         setDragState({
           isDrawing: true,
           startCell: { gridX, gridY },
           lastCell: { gridX, gridY },
-          entrySide,
-          visitedCells: new Set([`${gridX},${gridY}`]),
+          entrySide: initialEntrySide, // Set if branching from existing track, null otherwise
+          visitedCells: new Set(),
           pathCells: [{ gridX, gridY }],
         });
 
@@ -436,14 +558,15 @@ export function TrackCanvas() {
         e.preventDefault();
       }
     },
-    [mode, selectedTool, handleClick, viewport, circuitGraph, simulation.trains, addTrain, setSimulationRunning]
+    [mode, selectedTool, handleClick, viewport, circuitGraph, simulation.trains, addTrain, setSimulationRunning, findJunctionNodeAt, createSwitchAtNode, updateSwitch, gridSize]
   );
 
   // Helper function to place a track at a grid position
   const placeTrackAtCell = useCallback(
     (cellX: number, cellY: number, orientation: RailOrientation) => {
-      // Check if track already exists
-      if (GridCircuitBuilder.trackExistsAt(cellX, cellY, circuitGraph.edges)) {
+      // Check if track would conflict with existing tracks (same edge used)
+      // This allows Y-junctions where multiple tracks share a cell but use different edges
+      if (GridCircuitBuilder.trackWouldConflict(cellX, cellY, orientation, gridSize, circuitGraph.edges)) {
         return;
       }
 
@@ -506,7 +629,23 @@ export function TrackCanvas() {
             gridY
           );
 
-          let currentEntrySide = dragState.entrySide!;
+          // Determine initial entry side from first drag direction if not set
+          // Entry side = opposite of exit direction (if going north, we entered from south)
+          let currentEntrySide = dragState.entrySide;
+          if (!currentEntrySide && cellsToProcess.length > 0) {
+            const firstExit = TrackDrawingHelper.getExitSideFromDirection(
+              dragState.lastCell.gridX,
+              dragState.lastCell.gridY,
+              cellsToProcess[0].gridX,
+              cellsToProcess[0].gridY
+            );
+            currentEntrySide = TrackDrawingHelper.getOppositeSide(firstExit);
+          }
+
+          if (!currentEntrySide) {
+            return; // Can't determine direction yet
+          }
+
           let lastProcessedCell = dragState.lastCell;
           const newPathCells = [...dragState.pathCells];
           const newVisitedCells = new Set(dragState.visitedCells);
@@ -526,8 +665,9 @@ export function TrackCanvas() {
 
             const prevCellKey = `${lastProcessedCell.gridX},${lastProcessedCell.gridY}`;
 
-            if (orientation && !newVisitedCells.has(prevCellKey)) {
-              // Place track in the previous cell
+            // Place track if valid orientation and no edge conflict
+            // Note: we don't check visitedCells here anymore - trackWouldConflict handles duplicates
+            if (orientation) {
               placeTrackAtCell(lastProcessedCell.gridX, lastProcessedCell.gridY, orientation);
               newVisitedCells.add(prevCellKey);
             }
@@ -572,7 +712,7 @@ export function TrackCanvas() {
   const handleMouseUp = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       // Handle final track placement when drag drawing
-      if (dragState.isDrawing && dragState.lastCell) {
+      if (dragState.isDrawing && dragState.lastCell && dragState.entrySide) {
         const canvas = canvasRef.current;
         if (canvas) {
           const rect = canvas.getBoundingClientRect();
@@ -589,16 +729,17 @@ export function TrackCanvas() {
           );
 
           // Determine track orientation
-          const orientation = TrackDrawingHelper.getTrackOrientation(dragState.entrySide!, exitSide);
+          const orientation = TrackDrawingHelper.getTrackOrientation(dragState.entrySide, exitSide);
 
-          const lastCellKey = `${dragState.lastCell.gridX},${dragState.lastCell.gridY}`;
-
-          if (orientation && !dragState.visitedCells.has(lastCellKey)) {
+          // Place final track if valid (conflict detection handles duplicates)
+          if (orientation) {
             placeTrackAtCell(dragState.lastCell.gridX, dragState.lastCell.gridY, orientation);
           }
         }
+      }
 
-        // Reset drag state
+      // Reset drag state if we were drawing
+      if (dragState.isDrawing) {
         setDragState({
           isDrawing: false,
           startCell: null,

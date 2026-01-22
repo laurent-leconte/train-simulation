@@ -328,6 +328,82 @@ export class GridCircuitBuilder {
   }
 
   /**
+   * Check if a track with the given orientation would conflict with existing tracks
+   *
+   * Two tracks in the same cell conflict if:
+   * 1. They have the exact same orientation (duplicate)
+   * 2. They share an edge BUT would create a crossing instead of a junction
+   *    (i.e., horizontal + vertical = crossing, not junction)
+   *
+   * Two tracks that share an edge AND form a junction are allowed:
+   * - horizontal + curve-ne (share east edge) = Y-junction at east
+   * - vertical + curve-ne (share north edge) = Y-junction at north
+   */
+  static trackWouldConflict(
+    gridX: number,
+    gridY: number,
+    orientation: RailOrientation,
+    gridSize: number,
+    segments: Map<string, TrackSegment>
+  ): boolean {
+    // Check existing tracks in the same cell
+    for (const segment of segments.values()) {
+      if (segment.gridX === gridX && segment.gridY === gridY) {
+        // Exact same orientation = duplicate, always conflict
+        if (segment.orientation === orientation) {
+          return true;
+        }
+
+        // Check if they form a crossing (no shared edge = crossing through center)
+        const newEdges = this.getEdgesForOrientation(orientation);
+        const existingEdges = this.getEdgesForOrientation(segment.orientation);
+
+        const sharedEdges = newEdges.filter(e => existingEdges.includes(e));
+
+        // If no shared edges, it's a crossing (horizontal + vertical)
+        // We'll allow crossings for now, but they don't form junctions
+        if (sharedEdges.length === 0) {
+          // Allow crossings - they're separate tracks that happen to be in same cell
+          continue;
+        }
+
+        // If they share exactly one edge, it's a valid Y-junction
+        // The tracks will connect at the shared node
+        if (sharedEdges.length === 1) {
+          continue; // Allow - this creates a junction
+        }
+
+        // If they share two edges, they're essentially the same track (shouldn't happen with different orientations)
+        if (sharedEdges.length === 2) {
+          return true; // Conflict
+        }
+      }
+    }
+
+    return false; // No conflict
+  }
+
+  /**
+   * Get the edges of a cell that a track orientation uses
+   */
+  static getEdgesForOrientation(orientation: RailOrientation): Array<'north' | 'south' | 'east' | 'west'> {
+    switch (orientation) {
+      case 'horizontal':
+        return ['west', 'east'];
+      case 'vertical':
+        return ['north', 'south'];
+      case 'curve-ne':
+        return ['north', 'east'];
+      case 'curve-es':
+        return ['south', 'east'];
+      case 'curve-sw':
+        return ['south', 'west'];
+      case 'curve-wn':
+        return ['north', 'west'];
+    }
+  }
+
+  /**
    * Get track at grid position
    */
   static getTrackAt(

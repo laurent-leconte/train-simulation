@@ -1,5 +1,5 @@
 import { Train } from '@/types/train.types';
-import { TrackSegment, TrackNode } from '@/types/circuit.types';
+import { TrackSegment, TrackNode, Switch } from '@/types/circuit.types';
 import { TrainPathFollower } from './TrainPathFollower';
 
 /**
@@ -12,12 +12,14 @@ export class TrainPhysics {
    * @param deltaTime Time step in seconds
    * @param segments Available track segments
    * @param nodes Available track nodes
+   * @param switches Available switches (for routing decisions)
    */
   static updateTrain(
     train: Train,
     deltaTime: number,
     segments: Map<string, TrackSegment>,
-    nodes: Map<string, TrackNode>
+    nodes: Map<string, TrackNode>,
+    switches?: Map<string, Switch>
   ): void {
     // Simple on/off control
     if (train.isRunning) {
@@ -34,7 +36,8 @@ export class TrainPhysics {
         train.position,
         deltaDistance,
         segments,
-        nodes
+        nodes,
+        switches
       );
 
       if (newPosition) {
@@ -54,10 +57,11 @@ export class TrainPhysics {
     trains: Map<string, Train>,
     deltaTime: number,
     segments: Map<string, TrackSegment>,
-    nodes: Map<string, TrackNode>
+    nodes: Map<string, TrackNode>,
+    switches?: Map<string, Switch>
   ): void {
     for (const train of trains.values()) {
-      this.updateTrain(train, deltaTime, segments, nodes);
+      this.updateTrain(train, deltaTime, segments, nodes, switches);
     }
   }
 }
