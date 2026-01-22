@@ -368,7 +368,7 @@ export function TrackCanvas() {
 
   // Helper to create a switch at a junction node
   const createSwitchAtNode = useCallback(
-    (nodeId: string, clickPos: Vector2D) => {
+    (nodeId: string) => {
       const node = circuitGraph.nodes.get(nodeId);
       if (!node || node.connectedSegments.length < 3) return;
 
@@ -379,51 +379,51 @@ export function TrackCanvas() {
         }
       }
 
-      // Determine which segment should be the incoming track based on click position
-      // The segment whose "outward direction" from the node is most aligned with
-      // the direction from node to click position = incoming track
-      const clickDirection = clickPos.subtract(node.position).normalize();
+      // A switch is formed by two tracks in the same grid cell sharing an edge.
+      // The shared edge is the entrance. The third track (in a different cell)
+      // coming to that shared edge is the incoming track.
 
-      // For each segment, find the direction it goes "away" from this node
-      const segmentDirections: Array<{ segmentId: string; direction: Vector2D }> = [];
-
+      // Group segments by grid cell
+      const segmentsByCell: Map<string, string[]> = new Map();
       for (const segmentId of node.connectedSegments) {
         const segment = circuitGraph.edges.get(segmentId);
         if (!segment) continue;
 
-        // Determine which end of segment connects to this node
-        const isStartNode = segment.startNode === nodeId;
-        // Direction going away from the node (into the segment)
-        const outwardDirection = isStartNode
-          ? segment.geometry.end.subtract(segment.geometry.start).normalize()
-          : segment.geometry.start.subtract(segment.geometry.end).normalize();
-
-        segmentDirections.push({ segmentId, direction: outwardDirection });
+        const cellKey = `${segment.gridX},${segment.gridY}`;
+        const existing = segmentsByCell.get(cellKey) || [];
+        existing.push(segmentId);
+        segmentsByCell.set(cellKey, existing);
       }
 
-      // Find the segment most aligned with click direction (highest dot product)
-      // This is the segment the user clicked "from" = incoming track
-      let incomingSegmentId = segmentDirections[0]?.segmentId;
-      let maxAlignment = -Infinity;
+      // Find the cell with 2 segments (the switch cell) and the cell with 1 segment (incoming)
+      let switchSegments: string[] = [];
+      let incomingSegmentId: string | null = null;
 
-      for (const { segmentId, direction } of segmentDirections) {
-        const alignment = direction.dot(clickDirection);
-        if (alignment > maxAlignment) {
-          maxAlignment = alignment;
-          incomingSegmentId = segmentId;
+      for (const [, segments] of segmentsByCell) {
+        if (segments.length === 2) {
+          switchSegments = segments;
+        } else if (segments.length === 1) {
+          // This could be the incoming track, but we need to verify it connects
+          // to the shared edge of the switch segments
+          if (!incomingSegmentId) {
+            incomingSegmentId = segments[0];
+          }
         }
       }
 
-      // The other segments are outgoing
-      const outgoingSegments = node.connectedSegments.filter(id => id !== incomingSegmentId);
-
-      if (outgoingSegments.length < 2) return;
+      // If we didn't find a clear switch pattern, fall back to first segment as incoming
+      if (switchSegments.length !== 2 || !incomingSegmentId) {
+        // Fallback: just use first segment as incoming
+        const segments = node.connectedSegments;
+        incomingSegmentId = segments[0];
+        switchSegments = [segments[1], segments[2]];
+      }
 
       const newSwitch: Switch = {
         id: nanoid(),
         nodeId,
         incomingTrack: incomingSegmentId,
-        outgoingTracks: [outgoingSegments[0], outgoingSegments[1]],
+        outgoingTracks: [switchSegments[0], switchSegments[1]],
         currentPosition: 0,
         type: 'left', // Default type
       };
@@ -463,7 +463,7 @@ export function TrackCanvas() {
         // Otherwise, try to create a new switch at a junction node
         const junctionNodeId = findJunctionNodeAt(worldPos);
         if (junctionNodeId) {
-          createSwitchAtNode(junctionNodeId, worldPos);
+          createSwitchAtNode(junctionNodeId);
         }
 
         return;
