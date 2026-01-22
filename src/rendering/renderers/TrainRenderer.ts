@@ -1,4 +1,4 @@
-import { Train } from '@/types/train.types';
+import { Train, CarriagePosition } from '@/types/train.types';
 import { RenderingContext } from '../RenderingContext';
 
 /**
@@ -17,6 +17,9 @@ export class TrainRenderer {
 
     for (const train of trains.values()) {
       const isSelected = train.id === selectedId;
+      // Render carriages first (behind locomotive)
+      this.renderCarriages(train, ctx);
+      // Render locomotive on top
       this.renderTrain(train, ctx, isSelected);
     }
   }
@@ -168,6 +171,102 @@ export class TrainRenderer {
       ctx.arc(puffX, puffY, size, 0, Math.PI * 2);
       ctx.fill();
     }
+  }
+
+  /**
+   * Render all carriages for a train
+   */
+  private renderCarriages(
+    train: Train,
+    ctx: CanvasRenderingContext2D
+  ): void {
+    if (!train.carriagePositions || train.carriagePositions.length === 0) return;
+
+    for (let i = 0; i < train.carriagePositions.length; i++) {
+      const pos = train.carriagePositions[i];
+      this.renderCarriage(pos, train.carriageLength, train.width, ctx, i);
+    }
+  }
+
+  /**
+   * Render a single carriage (passenger wagon)
+   */
+  private renderCarriage(
+    position: CarriagePosition,
+    length: number,
+    width: number,
+    ctx: CanvasRenderingContext2D,
+    index: number
+  ): void {
+    const { worldPosition, direction } = position;
+
+    ctx.save();
+
+    // Move to carriage position and rotate to face direction
+    ctx.translate(worldPosition.x, worldPosition.y);
+    const angle = Math.atan2(direction.y, direction.x);
+    ctx.rotate(angle);
+
+    const halfLength = length / 2;
+    const halfWidth = width / 2;
+
+    // Alternate carriage colors
+    const colors = ['#8B4513', '#2F4F4F', '#4A4A4A']; // Brown, dark slate, dark gray
+    const color = colors[index % colors.length];
+
+    this.drawCarriageBody(ctx, -halfLength, -halfWidth, length, width, color);
+
+    ctx.restore();
+  }
+
+  /**
+   * Draw a passenger carriage from above (top-down view)
+   */
+  private drawCarriageBody(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    length: number,
+    width: number,
+    color: string
+  ): void {
+    // Main body
+    ctx.fillStyle = color;
+    ctx.fillRect(x + 2, y, length - 4, width);
+
+    // Rounded ends
+    ctx.beginPath();
+    ctx.arc(x + 2, y + width / 2, width / 2, Math.PI / 2, -Math.PI / 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + length - 2, y + width / 2, width / 2, -Math.PI / 2, Math.PI / 2);
+    ctx.fill();
+
+    // Outline
+    ctx.strokeStyle = '#1a1a1a';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 2, y, length - 4, width);
+
+    // Windows (small rectangles along the sides)
+    ctx.fillStyle = '#87CEEB';
+    const windowCount = Math.floor((length - 10) / 8);
+    const windowStart = x + 5;
+    for (let i = 0; i < windowCount; i++) {
+      const wx = windowStart + i * 8;
+      // Top windows
+      ctx.fillRect(wx, y + 1, 5, 2);
+      // Bottom windows
+      ctx.fillRect(wx, y + width - 3, 5, 2);
+    }
+
+    // Roof detail (darker stripe down the middle)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+    ctx.fillRect(x + 4, y + width * 0.35, length - 8, width * 0.3);
+
+    // Couplings at ends (small dark rectangles)
+    ctx.fillStyle = '#333';
+    ctx.fillRect(x - 2, y + width * 0.4, 4, width * 0.2);
+    ctx.fillRect(x + length - 2, y + width * 0.4, 4, width * 0.2);
   }
 
 }

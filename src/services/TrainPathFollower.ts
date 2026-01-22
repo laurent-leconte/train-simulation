@@ -1,6 +1,6 @@
 import { Vector2D } from '@/core/geometry/Vector2D';
 import { TrackSegment, TrackNode, StraightGeometry, CurveGeometry, Switch } from '@/types/circuit.types';
-import { TrainPosition } from '@/types/train.types';
+import { TrainPosition, CarriagePosition } from '@/types/train.types';
 import {
   evaluateCubicBezier,
   evaluateCubicBezierDerivative,
@@ -247,5 +247,136 @@ export class TrainPathFollower {
       direction,
       reversed: false,
     };
+  }
+
+  /**
+   * Calculate positions for carriages behind the locomotive
+   * Carriages follow the track path behind the locomotive
+   */
+  static calculateCarriagePositions(
+    locomotivePosition: TrainPosition,
+    locomotiveLength: number,
+    carriageCount: number,
+    carriageLength: number,
+    carriageGap: number,
+    segments: Map<string, TrackSegment>,
+    nodes: Map<string, TrackNode>
+  ): CarriagePosition[] {
+    const positions: CarriagePosition[] = [];
+
+    if (carriageCount === 0) return positions;
+
+    // Start from behind the locomotive
+    // Distance behind locomotive center to first carriage center
+    let distanceBehind = locomotiveLength / 2 + carriageGap + carriageLength / 2;
+
+    for (let i = 0; i < carriageCount; i++) {
+      // Move backward from locomotive position
+      const carriagePos = this.moveAlongTrackSimple(
+        locomotivePosition,
+        -distanceBehind, // Negative = backward
+        segments,
+        nodes
+      );
+
+      if (carriagePos) {
+        positions.push({
+          worldPosition: carriagePos.worldPosition,
+          direction: carriagePos.direction,
+        });
+      } else {
+        // If we can't place this carriage, use last known position offset
+        const lastPos = positions.length > 0
+          ? positions[positions.length - 1]
+          : { worldPosition: locomotivePosition.worldPosition, direction: locomotivePosition.direction };
+
+        // Place carriage behind last position along direction
+        const offset = lastPos.direction.multiply(-(carriageLength + carriageGap));
+        positions.push({
+          worldPosition: lastPos.worldPosition.add(offset),
+          direction: lastPos.direction,
+        });
+      }
+
+      // Move to next carriage position
+      distanceBehind += carriageLength + carriageGap;
+    }
+
+    return positions;
+  }
+
+  /**
+   * Move along track without switch logic (for carriage positioning)
+   * This traces backward along the path the train came from
+   */
+  private static moveAlongTrackSimple(
+    startPosition: TrainPosition,
+    deltaDistance: number,
+    segments: Map<string, TrackSegment>,
+    nodes: Map<string, TrackNode>
+  ): { worldPosition: Vector2D; direction: Vector2D } | null {
+    let currentSegmentId = startPosition.segmentId;
+    let currentReversed = startPosition.reversed;
+
+    // Calculate effective movement direction
+    // If train is reversed, negative delta means moving toward higher distances
+    let currentDistance = startPosition.distance + (currentReversed ? -deltaDistance : deltaDistance);
+
+    // Limit iterations to prevent infinite loops
+    let iterations = 0;
+    const maxIterations = 20;
+
+    while (iterations < maxIterations) {
+      iterations++;
+      const segment = segments.get(currentSegmentId);
+      if (!segment) return null;
+
+      // Check if we're within the current segment
+      if (currentDistance >= 0 && currentDistance <= segment.length) {
+        return this.calculatePosition(segment, currentDistance, currentReversed);
+      }
+
+      // Moving past segment boundary
+      const exitingFromStart = currentDistance < 0;
+      const overflow = exitingFromStart ? -currentDistance : currentDistance - segment.length;
+      const exitNodeId = exitingFromStart ? segment.startNode : segment.endNode;
+
+      // Find connected segment (no switch logic - just follow the track)
+      const node = nodes.get(exitNodeId);
+      if (!node) return null;
+
+      // Find another segment connected to this node
+      let nextSegmentId: string | null = null;
+      for (const segmentId of node.connectedSegments) {
+        if (segmentId !== currentSegmentId) {
+          nextSegmentId = segmentId;
+          break;
+        }
+      }
+
+      if (!nextSegmentId) {
+        // End of track - return position at boundary
+        const clampedDistance = exitingFromStart ? 0 : segment.length;
+        return this.calculatePosition(segment, clampedDistance, currentReversed);
+      }
+
+      const nextSegment = segments.get(nextSegmentId);
+      if (!nextSegment) return null;
+
+      // Determine how to enter the next segment
+      const nextReversed = exitNodeId === nextSegment.endNode;
+
+      if (nextReversed) {
+        currentSegmentId = nextSegmentId;
+        currentDistance = nextSegment.length - overflow;
+        currentReversed = true;
+      } else {
+        currentSegmentId = nextSegmentId;
+        currentDistance = overflow;
+        currentReversed = false;
+      }
+    }
+
+    return null;
   }
 }

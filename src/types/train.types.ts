@@ -12,6 +12,14 @@ export interface TrainPosition {
 }
 
 /**
+ * Carriage visual position (for rendering only)
+ */
+export interface CarriagePosition {
+  worldPosition: Vector2D;
+  direction: Vector2D;
+}
+
+/**
  * Train entity
  */
 export interface Train {
@@ -23,9 +31,15 @@ export interface Train {
   speed: number; // Constant speed when running (pixels/second)
 
   // Visual properties
-  length: number; // Train length in pixels
+  length: number; // Locomotive length in pixels
   width: number; // Train width in pixels
   color: string;
+
+  // Carriages
+  carriageCount: number; // Number of carriages behind locomotive
+  carriageLength: number; // Length of each carriage
+  carriageGap: number; // Gap between carriages
+  carriagePositions: CarriagePosition[]; // Calculated positions for rendering
 
   // Control
   isRunning: boolean; // true = moving, false = stopped
@@ -39,4 +53,8 @@ export const DEFAULT_TRAIN_SETTINGS = {
   length: 40,
   width: 12,
   color: '#ef4444', // red
+  carriageCount: 3,
+  carriageLength: 30,
+  carriageGap: 4,
+  carriagePositions: [] as CarriagePosition[],
 };

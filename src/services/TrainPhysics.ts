@@ -46,6 +46,19 @@ export class TrainPhysics {
         train.velocity = 0;
       }
     }
+
+    // Update carriage positions
+    if (train.carriageCount > 0) {
+      train.carriagePositions = TrainPathFollower.calculateCarriagePositions(
+        train.position,
+        train.length,
+        train.carriageCount,
+        train.carriageLength,
+        train.carriageGap,
+        segments,
+        nodes
+      );
+    }
   }
 
   /**

@@ -573,11 +573,23 @@ export function TrackCanvas() {
           );
 
           if (position) {
+            // Calculate initial carriage positions
+            const carriagePositions = TrainPathFollower.calculateCarriagePositions(
+              position,
+              DEFAULT_TRAIN_SETTINGS.length,
+              DEFAULT_TRAIN_SETTINGS.carriageCount,
+              DEFAULT_TRAIN_SETTINGS.carriageLength,
+              DEFAULT_TRAIN_SETTINGS.carriageGap,
+              circuitGraph.edges,
+              circuitGraph.nodes
+            );
+
             const newTrain: Train = {
               id: nanoid(),
               position,
               velocity: 0,
               ...DEFAULT_TRAIN_SETTINGS,
+              carriagePositions,
               isRunning: true, // Start the train immediately
             };
 
