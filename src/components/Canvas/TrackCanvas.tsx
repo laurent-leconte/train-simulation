@@ -105,11 +105,8 @@ export function TrackCanvas() {
   // Simulation loop - update physics at fixed timestep
   useEffect(() => {
     if (mode !== 'simulate' || !simulation.isRunning || simulation.isPaused) {
-      console.log('Simulation not running:', { mode, isRunning: simulation.isRunning, isPaused: simulation.isPaused });
       return;
     }
-
-    console.log('Starting simulation loop with', simulation.trains.size, 'trains');
 
     let lastTime = performance.now();
     let animationFrameId: number;
@@ -122,8 +119,6 @@ export function TrackCanvas() {
 
       // Update physics with fixed timestep
       const adjustedDelta = Math.min(deltaTime * simulation.simulationSpeed, fixedTimeStep * 3);
-
-      console.log('Simulation tick, deltaTime:', adjustedDelta);
 
       // Update each train directly in the store
       simulation.trains.forEach((train) => {
@@ -156,7 +151,6 @@ export function TrackCanvas() {
     animationFrameId = requestAnimationFrame(loop);
 
     return () => {
-      console.log('Stopping simulation loop');
       if (animationFrameId) {
         cancelAnimationFrame(animationFrameId);
       }
@@ -381,7 +375,6 @@ export function TrackCanvas() {
       // Check if switch already exists at this node
       for (const sw of circuitGraph.switches.values()) {
         if (sw.nodeId === nodeId) {
-          console.log('Switch already exists at this node');
           return;
         }
       }
@@ -400,7 +393,6 @@ export function TrackCanvas() {
       };
 
       addSwitch(newSwitch);
-      console.log('Created switch:', newSwitch);
     },
     [circuitGraph.nodes, circuitGraph.switches, addSwitch]
   );
@@ -429,7 +421,6 @@ export function TrackCanvas() {
           // Toggle the switch position
           const newPosition = existingSwitch.currentPosition === 0 ? 1 : 0;
           updateSwitch(existingSwitch.id, newPosition);
-          console.log('Toggled switch to position:', newPosition);
           return;
         }
 
@@ -437,8 +428,6 @@ export function TrackCanvas() {
         const junctionNodeId = findJunctionNodeAt(worldPos);
         if (junctionNodeId) {
           createSwitchAtNode(junctionNodeId);
-        } else {
-          console.log('No junction node found at click position (need node with 3+ tracks)');
         }
 
         return;
@@ -541,7 +530,6 @@ export function TrackCanvas() {
               isRunning: true, // Start the train immediately
             };
 
-            console.log('Created train:', newTrain);
             addTrain(newTrain);
             setSimulationRunning(true);
           }

@@ -25,7 +25,6 @@ export function SimulationControls() {
           // Toggle train on/off
           e.preventDefault();
           updateTrain(train.id, { isRunning: !train.isRunning });
-          console.log('Train toggled:', !train.isRunning);
           break;
       }
     };

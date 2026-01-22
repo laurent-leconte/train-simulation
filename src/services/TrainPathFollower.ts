@@ -147,7 +147,6 @@ export class TrainPathFollower {
         if (!nextSegmentId) {
           // No next segment - clamp to boundary
           const clampedDistance = currentDistance < 0 ? 0 : segment.length;
-          console.log(`Train reached end of track at segment ${currentSegmentId}`);
           const { worldPosition, direction } = this.calculatePosition(segment, clampedDistance, currentReversed);
           return {
             segmentId: currentSegmentId,
@@ -169,13 +168,11 @@ export class TrainPathFollower {
           currentSegmentId = nextSegmentId;
           currentDistance = nextSegment.length - overflow;
           currentReversed = true;
-          console.log(`Train transitioning from ${segment.id} to ${nextSegmentId} (REVERSED) at distance ${currentDistance.toFixed(2)}`);
         } else {
           // Enter from start, traverse forwards
           currentSegmentId = nextSegmentId;
           currentDistance = overflow;
           currentReversed = false;
-          console.log(`Train transitioning from ${segment.id} to ${nextSegmentId} (FORWARD) at distance ${currentDistance.toFixed(2)}`);
         }
 
         // Continue loop to check if we overflow this segment too
@@ -208,14 +205,11 @@ export class TrainPathFollower {
           // Found a switch at this node
           // If we're coming from the incoming track, use switch position to choose outgoing
           if (currentSegment.id === sw.incomingTrack) {
-            const nextSegmentId = sw.outgoingTracks[sw.currentPosition];
-            console.log(`Switch at node ${nodeId}: taking outgoing track ${sw.currentPosition} -> ${nextSegmentId}`);
-            return nextSegmentId;
+            return sw.outgoingTracks[sw.currentPosition];
           }
 
           // If we're coming from one of the outgoing tracks, go to incoming
           if (sw.outgoingTracks.includes(currentSegment.id)) {
-            console.log(`Switch at node ${nodeId}: coming from outgoing, going to incoming -> ${sw.incomingTrack}`);
             return sw.incomingTrack;
           }
         }

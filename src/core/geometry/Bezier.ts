@@ -111,64 +111,6 @@ export function calculateBezierLength(
 }
 
 /**
- * Find the t parameter for a given distance along the curve
- * Uses binary search for efficiency
- */
-export function distanceToT(
-  p0: Vector2D,
-  p1: Vector2D,
-  p2: Vector2D,
-  targetDistance: number,
-  totalLength: number,
-  p3?: Vector2D
-): number {
-  // Quick checks
-  if (targetDistance <= 0) return 0;
-  if (targetDistance >= totalLength) return 1;
-
-  // Binary search
-  let tMin = 0;
-  let tMax = 1;
-  let t = targetDistance / totalLength; // Initial guess
-
-  const isQuadratic = p3 === undefined;
-  const tolerance = 0.001;
-
-  for (let i = 0; i < 20; i++) {
-    // Calculate distance at current t
-    let distance = 0;
-    let prevPoint = p0;
-    const samples = 50;
-
-    for (let j = 1; j <= samples; j++) {
-      const sampleT = (j / samples) * t;
-      const point = isQuadratic
-        ? evaluateQuadraticBezier(p0, p1, p2, sampleT)
-        : evaluateCubicBezier(p0, p1, p2, p3!, sampleT);
-
-      distance += point.distanceTo(prevPoint);
-      prevPoint = point;
-    }
-
-    const error = distance - targetDistance;
-
-    if (Math.abs(error) < tolerance) {
-      return t;
-    }
-
-    if (error > 0) {
-      tMax = t;
-    } else {
-      tMin = t;
-    }
-
-    t = (tMin + tMax) / 2;
-  }
-
-  return t;
-}
-
-/**
  * Create a smooth quadratic Bezier control point for a given radius
  */
 export function createSmoothControlPoint(

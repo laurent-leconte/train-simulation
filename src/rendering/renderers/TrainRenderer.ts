@@ -170,29 +170,4 @@ export class TrainRenderer {
     }
   }
 
-  /**
-   * Render train debug info (position, velocity, etc.)
-   */
-  renderDebugInfo(
-    train: Train,
-    ctx: CanvasRenderingContext2D
-  ): void {
-    const { worldPosition } = train.position;
-
-    ctx.save();
-    ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 3;
-    ctx.font = '12px monospace';
-
-    const text = `v: ${train.velocity.toFixed(1)} px/s`;
-    const textX = worldPosition.x + 20;
-    const textY = worldPosition.y - 20;
-
-    // Draw text outline
-    ctx.strokeText(text, textX, textY);
-    ctx.fillText(text, textX, textY);
-
-    ctx.restore();
-  }
 }

@@ -42,9 +42,7 @@ export class TrainPhysics {
 
       if (newPosition) {
         train.position = newPosition;
-        console.log(`Train ${train.id} moved to distance ${newPosition.distance.toFixed(2)} on segment ${newPosition.segmentId}`);
       } else {
-        console.warn(`Train ${train.id} could not move - no valid position`);
         train.velocity = 0;
       }
     }

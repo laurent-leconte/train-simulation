@@ -36,25 +36,6 @@ export class TrackRenderer {
   }
 
   /**
-   * Render a preview of a track geometry (for hover preview)
-   */
-  renderPreview(
-    geometry: StraightGeometry | CurveGeometry,
-    ctx: CanvasRenderingContext2D
-  ): void {
-    ctx.save();
-    ctx.globalAlpha = 0.6; // Make preview semi-transparent
-
-    if (geometry.type === 'straight') {
-      this.renderStraightSegment(geometry, ctx, false);
-    } else {
-      this.renderCurvedSegment(geometry, ctx, false);
-    }
-
-    ctx.restore();
-  }
-
-  /**
    * Render a single track segment
    */
   private renderSegment(
