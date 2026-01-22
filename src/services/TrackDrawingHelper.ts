@@ -1,7 +1,7 @@
 import { Vector2D } from '@/core/geometry/Vector2D';
 import { RailOrientation, Side } from '@/types';
 
-export { Side };
+export type { Side };
 
 /**
  * Helper utilities for drag-based track drawing
