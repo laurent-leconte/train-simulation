@@ -368,7 +368,7 @@ export function TrackCanvas() {
 
   // Helper to create a switch at a junction node
   const createSwitchAtNode = useCallback(
-    (nodeId: string) => {
+    (nodeId: string, clickPos: Vector2D) => {
       const node = circuitGraph.nodes.get(nodeId);
       if (!node || node.connectedSegments.length < 3) return;
 
@@ -379,22 +379,58 @@ export function TrackCanvas() {
         }
       }
 
-      // Get connected segments
-      const segments = node.connectedSegments;
+      // Determine which segment should be the incoming track based on click position
+      // The segment whose "outward direction" from the node is most aligned with
+      // the direction from node to click position = incoming track
+      const clickDirection = clickPos.subtract(node.position).normalize();
 
-      // Create switch: first segment is incoming, next two are outgoing options
+      // For each segment, find the direction it goes "away" from this node
+      const segmentDirections: Array<{ segmentId: string; direction: Vector2D }> = [];
+
+      for (const segmentId of node.connectedSegments) {
+        const segment = circuitGraph.edges.get(segmentId);
+        if (!segment) continue;
+
+        // Determine which end of segment connects to this node
+        const isStartNode = segment.startNode === nodeId;
+        // Direction going away from the node (into the segment)
+        const outwardDirection = isStartNode
+          ? segment.geometry.end.subtract(segment.geometry.start).normalize()
+          : segment.geometry.start.subtract(segment.geometry.end).normalize();
+
+        segmentDirections.push({ segmentId, direction: outwardDirection });
+      }
+
+      // Find the segment most aligned with click direction (highest dot product)
+      // This is the segment the user clicked "from" = incoming track
+      let incomingSegmentId = segmentDirections[0]?.segmentId;
+      let maxAlignment = -Infinity;
+
+      for (const { segmentId, direction } of segmentDirections) {
+        const alignment = direction.dot(clickDirection);
+        if (alignment > maxAlignment) {
+          maxAlignment = alignment;
+          incomingSegmentId = segmentId;
+        }
+      }
+
+      // The other segments are outgoing
+      const outgoingSegments = node.connectedSegments.filter(id => id !== incomingSegmentId);
+
+      if (outgoingSegments.length < 2) return;
+
       const newSwitch: Switch = {
         id: nanoid(),
         nodeId,
-        incomingTrack: segments[0],
-        outgoingTracks: [segments[1], segments[2]],
+        incomingTrack: incomingSegmentId,
+        outgoingTracks: [outgoingSegments[0], outgoingSegments[1]],
         currentPosition: 0,
         type: 'left', // Default type
       };
 
       addSwitch(newSwitch);
     },
-    [circuitGraph.nodes, circuitGraph.switches, addSwitch]
+    [circuitGraph.nodes, circuitGraph.edges, circuitGraph.switches, addSwitch]
   );
 
   // Mouse down handler (start dragging for track tool, or panning)
@@ -427,7 +463,7 @@ export function TrackCanvas() {
         // Otherwise, try to create a new switch at a junction node
         const junctionNodeId = findJunctionNodeAt(worldPos);
         if (junctionNodeId) {
-          createSwitchAtNode(junctionNodeId);
+          createSwitchAtNode(junctionNodeId, worldPos);
         }
 
         return;
