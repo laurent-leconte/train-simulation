@@ -216,6 +216,11 @@ export const useStore = create<AppState>()(
         state.circuit.graph.switches.clear();
         state.circuit.graph.stations.clear();
         state.circuit.graph.signals.clear();
+        // Also clear trains and reset simulation
+        state.simulation.trains.clear();
+        state.simulation.isRunning = false;
+        state.simulation.isPaused = false;
+        state.simulation.currentTime = 0;
       }),
 
     // Train actions

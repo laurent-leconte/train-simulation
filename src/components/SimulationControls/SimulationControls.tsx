@@ -1,5 +1,6 @@
 import { useStore } from '@/state/store';
 import { useEffect, useCallback } from 'react';
+import { Vector2D } from '@/core/geometry/Vector2D';
 
 /**
  * Simulation controls component (simplified on/off model)
@@ -12,7 +13,22 @@ export function SimulationControls() {
   const updateTrain = useStore((state) => state.updateTrain);
   const trains = Array.from(simulation.trains.values());
 
-  // Keyboard controls for train on/off
+  // Flip train direction
+  const handleFlipTrain = useCallback(() => {
+    if (trains.length > 0) {
+      const train = trains[0];
+      const currentDirection = train.position.direction;
+      updateTrain(train.id, {
+        position: {
+          ...train.position,
+          reversed: !train.position.reversed,
+          direction: new Vector2D(-currentDirection.x, -currentDirection.y),
+        },
+      });
+    }
+  }, [trains, updateTrain]);
+
+  // Keyboard controls for train
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
       if (trains.length === 0) return;
@@ -26,12 +42,17 @@ export function SimulationControls() {
           e.preventDefault();
           updateTrain(train.id, { isRunning: !train.isRunning });
           break;
+        case 'r':
+          // Flip train direction
+          e.preventDefault();
+          handleFlipTrain();
+          break;
       }
     };
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [trains, updateTrain]);
+  }, [trains, updateTrain, handleFlipTrain]);
 
   const handlePlayPause = useCallback(() => {
     if (!simulation.isRunning) {
@@ -127,11 +148,18 @@ export function SimulationControls() {
             >
               {trains[0].isRunning ? '⏸ Arrêter' : '▶ Démarrer'}
             </button>
+            <button
+              onClick={handleFlipTrain}
+              className="px-3 py-1 rounded text-sm font-medium bg-purple-600 hover:bg-purple-700 text-white"
+              title="Inverser la direction (R)"
+            >
+              ↔ Inverser
+            </button>
             <div className="text-white text-sm">
               Vitesse: {trains[0].velocity.toFixed(1)} px/s
             </div>
             <div className="text-gray-400 text-xs">
-              (Espace: Basculer train)
+              (Espace: Marche/Arrêt, R: Inverser)
             </div>
           </div>
         )}
