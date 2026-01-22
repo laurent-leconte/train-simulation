@@ -524,7 +524,7 @@ export function TrackCanvas() {
         return;
       }
 
-      // If in simulation mode and clicking on track, place a train
+      // If in simulation mode and clicking on track, place a train or toggle switch
       if (mode === 'simulate' && e.button === 0) {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -534,6 +534,21 @@ export function TrackCanvas() {
         const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height);
         const worldPos = renderCtx.screenToWorld(screenPos);
 
+        // First check if clicking on a switch to toggle it
+        const clickedSwitch = SwitchRenderer.findSwitchAt(
+          worldPos,
+          circuitGraph.switches,
+          circuitGraph.nodes
+        );
+
+        if (clickedSwitch) {
+          // Toggle the switch position
+          const newPosition = clickedSwitch.currentPosition === 0 ? 1 : 0;
+          updateSwitch(clickedSwitch.id, newPosition);
+          return;
+        }
+
+        // Otherwise, try to place a train
         // Find closest track segment
         let closestSegment: string | null = null;
         let closestDistance = Infinity;
@@ -605,6 +620,9 @@ export function TrackCanvas() {
           });
         });
 
+        // Create mutable copy of edges for checking junctions
+        const edgesCopy = new Map(circuitGraph.edges);
+
         // Create track at grid position
         const result = GridCircuitBuilder.createGridTrack(
           cellX,
@@ -614,10 +632,71 @@ export function TrackCanvas() {
           nodesCopy
         );
 
+        // Add the new segment to edges copy
+        edgesCopy.set(result.segment.id, result.segment);
+
+        // Check for new Y-junctions and auto-create switches
+        const newSwitches: Switch[] = [];
+        for (const [nodeId, node] of nodesCopy) {
+          if (node.connectedSegments.length >= 3) {
+            // Check if switch already exists at this node
+            let switchExists = false;
+            for (const sw of circuitGraph.switches.values()) {
+              if (sw.nodeId === nodeId) {
+                switchExists = true;
+                break;
+              }
+            }
+
+            if (!switchExists) {
+              // Auto-create switch using the same logic as createSwitchAtNode
+              const segmentsByCell: Map<string, string[]> = new Map();
+              for (const segmentId of node.connectedSegments) {
+                const segment = edgesCopy.get(segmentId);
+                if (!segment) continue;
+
+                const cellKey = `${segment.gridX},${segment.gridY}`;
+                const existing = segmentsByCell.get(cellKey) || [];
+                existing.push(segmentId);
+                segmentsByCell.set(cellKey, existing);
+              }
+
+              let switchSegments: string[] = [];
+              let incomingSegmentId: string | null = null;
+
+              for (const [, segments] of segmentsByCell) {
+                if (segments.length === 2) {
+                  switchSegments = segments;
+                } else if (segments.length === 1) {
+                  if (!incomingSegmentId) {
+                    incomingSegmentId = segments[0];
+                  }
+                }
+              }
+
+              if (switchSegments.length === 2 && incomingSegmentId) {
+                newSwitches.push({
+                  id: nanoid(),
+                  nodeId,
+                  incomingTrack: incomingSegmentId,
+                  outgoingTracks: [switchSegments[0], switchSegments[1]],
+                  currentPosition: 0,
+                  type: 'left',
+                });
+              }
+            }
+          }
+        }
+
         // Update the store
         useStore.setState((state) => {
           state.circuit.graph.nodes = nodesCopy;
           state.circuit.graph.edges.set(result.segment.id, result.segment);
+
+          // Add any auto-created switches
+          for (const sw of newSwitches) {
+            state.circuit.graph.switches.set(sw.id, sw);
+          }
         });
       } catch (error) {
         console.error('Failed to create track:', error);
