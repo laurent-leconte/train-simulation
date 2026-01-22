@@ -55,6 +55,6 @@ export const DEFAULT_TRAIN_SETTINGS = {
   color: '#ef4444', // red
   carriageCount: 3,
   carriageLength: 30,
-  carriageGap: 4,
+  carriageGap: 8,
   carriagePositions: [] as CarriagePosition[],
 };

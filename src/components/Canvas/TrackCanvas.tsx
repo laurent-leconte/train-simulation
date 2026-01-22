@@ -122,7 +122,7 @@ export function TrackCanvas() {
 
       // Update each train directly in the store
       simulation.trains.forEach((train) => {
-        // Create a mutable copy of the train with deep copy of position
+        // Create a mutable copy of the train with deep copy of position and carriages
         const trainCopy = {
           ...train,
           position: {
@@ -130,6 +130,10 @@ export function TrackCanvas() {
             worldPosition: new Vector2D(train.position.worldPosition.x, train.position.worldPosition.y),
             direction: new Vector2D(train.position.direction.x, train.position.direction.y),
           },
+          carriagePositions: train.carriagePositions ? train.carriagePositions.map(cp => ({
+            worldPosition: new Vector2D(cp.worldPosition.x, cp.worldPosition.y),
+            direction: new Vector2D(cp.direction.x, cp.direction.y),
+          })) : [],
         };
 
         // Update the train (pass switches for routing decisions)
@@ -141,8 +145,16 @@ export function TrackCanvas() {
           circuitGraph.switches
         );
 
-        // Update store
-        updateTrain(train.id, trainCopy);
+        // Update store with proper Vector2D instances for carriage positions
+        const updatedCarriagePositions = trainCopy.carriagePositions.map(cp => ({
+          worldPosition: new Vector2D(cp.worldPosition.x, cp.worldPosition.y),
+          direction: new Vector2D(cp.direction.x, cp.direction.y),
+        }));
+
+        updateTrain(train.id, {
+          ...trainCopy,
+          carriagePositions: updatedCarriagePositions,
+        });
       });
 
       animationFrameId = requestAnimationFrame(loop);

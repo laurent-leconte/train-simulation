@@ -247,12 +247,12 @@ export class TrainRenderer {
     ctx.lineWidth = 1;
     ctx.strokeRect(x + 2, y, length - 4, width);
 
-    // Windows (small rectangles along the sides)
+    // Windows (fixed positions relative to carriage center)
     ctx.fillStyle = '#87CEEB';
-    const windowCount = Math.floor((length - 10) / 8);
-    const windowStart = x + 5;
-    for (let i = 0; i < windowCount; i++) {
-      const wx = windowStart + i * 8;
+    const windowPositions = [-8, 0, 8]; // Three windows evenly spaced
+    const centerX = x + length / 2;
+    for (const offset of windowPositions) {
+      const wx = centerX + offset - 2.5;
       // Top windows
       ctx.fillRect(wx, y + 1, 5, 2);
       // Bottom windows
