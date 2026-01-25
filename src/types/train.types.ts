@@ -20,6 +20,17 @@ export interface CarriagePosition {
 }
 
 /**
+ * Historical position snapshot for debugging
+ */
+export interface PositionSnapshot {
+  segmentId: string;
+  distance: number;
+  worldX: number;
+  worldY: number;
+  timestamp: number;
+}
+
+/**
  * Train entity
  */
 export interface Train {
@@ -43,6 +54,16 @@ export interface Train {
 
   // Control
   isRunning: boolean; // true = moving, false = stopped
+
+  // Station stops
+  stoppedAtStation: string | null; // ID of station where stopped, null if not stopped
+  stationStopTimeRemaining: number; // Time remaining at current station (seconds)
+  approachingStation: string | null; // ID of station we're approaching (pulling into)
+  stationStopTargetSegmentId: string | null; // Segment where we should stop
+  stationStopTargetDistance: number; // Distance along that segment where we should stop
+
+  // Debug
+  positionHistory: PositionSnapshot[]; // Last N positions for debugging
 }
 
 /**
@@ -57,4 +78,10 @@ export const DEFAULT_TRAIN_SETTINGS = {
   carriageLength: 30,
   carriageGap: 8,
   carriagePositions: [] as CarriagePosition[],
+  stoppedAtStation: null as string | null,
+  stationStopTimeRemaining: 0,
+  approachingStation: null as string | null,
+  stationStopTargetSegmentId: null as string | null,
+  stationStopTargetDistance: 0,
+  positionHistory: [] as PositionSnapshot[],
 };
