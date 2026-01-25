@@ -27,10 +27,12 @@ Le simulateur utilise une **grille de 50x50 pixels** pour placer les rails. Chaq
 #### Types de rails disponibles
 
 **Rails droits :**
+
 - **Horizontal (─)** : Rail est-ouest
 - **Vertical (│)** : Rail nord-sud
 
 **Rails courbes (quarts de cercle) :**
+
 - **NE (╰)** : Courbe de bas vers droite
 - **ES (╮)** : Courbe de haut vers droite
 - **SW (╯)** : Courbe de haut vers gauche
@@ -57,7 +59,7 @@ Le simulateur utilise une **grille de 50x50 pixels** pour placer les rails. Chaq
 
 ### Mode Simulation
 
-*(À venir dans les prochaines phases)*
+_(À venir dans les prochaines phases)_
 
 ## Fonctionnalités actuelles (Phase 1 & 2)
 
@@ -79,6 +81,16 @@ Le simulateur utilise une **grille de 50x50 pixels** pour placer les rails. Chaq
 - Phase 4: Train avec physique réaliste
 - Phase 5: Logique de simulation avancée
 - Phase 6: Save/Load, optimisations
+
+## Idées en vrac
+
+- plusieurs trains
+- déclencheurs sur les rails, pour activer un signal ou un aiguillage
+- amélioration des visuels
+- jour / nuit
+- des gens montent / descendent du train à la gare
+- eau, montagne
+- ponts
 
 ## Architecture technique
 

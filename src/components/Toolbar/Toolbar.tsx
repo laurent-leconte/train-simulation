@@ -88,13 +88,6 @@ export function Toolbar() {
               >
                 🚦 Signal
               </button>
-              <button
-                onClick={() => setSelectedTool({ type: 'switch' })}
-                className={getButtonClass({ type: 'switch' })}
-                title="Placer un aiguillage"
-              >
-                ⚡ Aiguillage
-              </button>
             </div>
 
             <div className="flex gap-2">

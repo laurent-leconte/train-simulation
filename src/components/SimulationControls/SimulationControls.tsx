@@ -1,12 +1,14 @@
 import { useStore } from '@/state/store';
 import { useEffect, useCallback } from 'react';
 import { Vector2D } from '@/core/geometry/Vector2D';
+import { DebugSerializer } from '@/services/DebugSerializer';
 
 /**
  * Simulation controls component (simplified on/off model)
  */
 export function SimulationControls() {
   const simulation = useStore((state) => state.simulation);
+  const circuit = useStore((state) => state.circuit);
   const setSimulationRunning = useStore((state) => state.setSimulationRunning);
   const setSimulationPaused = useStore((state) => state.setSimulationPaused);
   const setSimulationSpeed = useStore((state) => state.setSimulationSpeed);
@@ -78,6 +80,25 @@ export function SimulationControls() {
       updateTrain(train.id, { isRunning: !train.isRunning });
     }
   }, [trains, updateTrain]);
+
+  const handleDebugOutput = useCallback(() => {
+    const debugJson = DebugSerializer.serialize(
+      circuit.graph.edges,
+      circuit.graph.nodes,
+      circuit.graph.switches,
+      simulation.trains
+    );
+
+    // Copy to clipboard
+    navigator.clipboard.writeText(debugJson).then(() => {
+      alert('État de debug copié dans le presse-papier!');
+    }).catch(() => {
+      // Fallback: show in console and prompt to select
+      console.log('=== DEBUG STATE ===');
+      console.log(debugJson);
+      alert('Impossible de copier automatiquement. État affiché dans la console (F12).');
+    });
+  }, [circuit.graph.edges, circuit.graph.nodes, circuit.graph.switches, simulation.trains]);
 
   return (
     <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-4">
@@ -169,6 +190,17 @@ export function SimulationControls() {
             Cliquez sur un rail pour placer un train
           </div>
         )}
+
+        {/* Debug output button */}
+        <div className="border-l border-gray-700 pl-4">
+          <button
+            onClick={handleDebugOutput}
+            className="px-3 py-1 rounded text-sm font-medium bg-gray-600 hover:bg-gray-500 text-gray-200"
+            title="Copier l'état de la simulation pour debug"
+          >
+            🐛 Debug
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -63,15 +63,14 @@ export interface Switch {
 }
 
 /**
- * Station - where trains can stop
+ * Station - where trains can stop (spans 3 cells alongside track)
  */
 export interface Station {
   id: string;
   name: string;
-  segmentId: string; // Track segment where station is located
-  distance: number; // Position along segment (0 to segment.length)
+  segmentIds: string[]; // The track segments the station spans (up to 3)
+  side: 'left' | 'right'; // Which side of the track the platform is on
   stopDuration: number; // Duration in seconds
-  platforms: number;
 }
 
 /**

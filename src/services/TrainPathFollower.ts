@@ -1,6 +1,6 @@
 import { Vector2D } from '@/core/geometry/Vector2D';
 import { TrackSegment, TrackNode, StraightGeometry, CurveGeometry, Switch } from '@/types/circuit.types';
-import { TrainPosition, CarriagePosition } from '@/types/train.types';
+import { TrainPosition, CarriagePosition, PositionSnapshot } from '@/types/train.types';
 import {
   evaluateCubicBezier,
   evaluateCubicBezierDerivative,
@@ -260,11 +260,22 @@ export class TrainPathFollower {
     carriageLength: number,
     carriageGap: number,
     segments: Map<string, TrackSegment>,
-    nodes: Map<string, TrackNode>
+    nodes: Map<string, TrackNode>,
+    positionHistory?: PositionSnapshot[]
   ): CarriagePosition[] {
     const positions: CarriagePosition[] = [];
 
     if (carriageCount === 0) return positions;
+
+    // Build a set of segments the train has recently been on (for junction decisions)
+    const recentSegments = new Set<string>();
+    if (positionHistory) {
+      for (const snapshot of positionHistory) {
+        recentSegments.add(snapshot.segmentId);
+      }
+    }
+    // Always include current segment
+    recentSegments.add(locomotivePosition.segmentId);
 
     // Get the locomotive's direction of travel
     const locoDirection = locomotivePosition.direction;
@@ -279,7 +290,8 @@ export class TrainPathFollower {
         locomotivePosition,
         -distanceBehind, // Negative = backward
         segments,
-        nodes
+        nodes,
+        recentSegments
       );
 
       if (carriagePos) {
@@ -320,16 +332,21 @@ export class TrainPathFollower {
   /**
    * Move along track without switch logic (for carriage positioning)
    * This traces backward along the path the train came from
+   * Uses recentSegments to choose the correct path at junctions
    * Returns raw track direction (caller should align with locomotive direction)
    */
   private static moveAlongTrackSimple(
     startPosition: TrainPosition,
     deltaDistance: number,
     segments: Map<string, TrackSegment>,
-    nodes: Map<string, TrackNode>
+    nodes: Map<string, TrackNode>,
+    recentSegments?: Set<string>
   ): { worldPosition: Vector2D; direction: Vector2D } | null {
     let currentSegmentId = startPosition.segmentId;
     let currentReversed = startPosition.reversed;
+
+    // Track which segments we've visited during this trace to avoid loops
+    const visitedSegments = new Set<string>();
 
     // Calculate effective movement direction
     // If train is reversed, negative delta means moving toward higher distances
@@ -344,6 +361,12 @@ export class TrainPathFollower {
       const segment = segments.get(currentSegmentId);
       if (!segment) return null;
 
+      visitedSegments.add(currentSegmentId);
+      // Also add to recentSegments so subsequent carriage traces benefit from this knowledge
+      if (recentSegments) {
+        recentSegments.add(currentSegmentId);
+      }
+
       // Check if we're within the current segment
       if (currentDistance >= 0 && currentDistance <= segment.length) {
         // Return raw track direction (without reversal - caller will align)
@@ -355,16 +378,33 @@ export class TrainPathFollower {
       const overflow = exitingFromStart ? -currentDistance : currentDistance - segment.length;
       const exitNodeId = exitingFromStart ? segment.startNode : segment.endNode;
 
-      // Find connected segment (no switch logic - just follow the track)
+      // Find connected segment
       const node = nodes.get(exitNodeId);
       if (!node) return null;
 
-      // Find another segment connected to this node
+      // Find the next segment - prefer segments in recentSegments (path the train took)
       let nextSegmentId: string | null = null;
-      for (const segmentId of node.connectedSegments) {
-        if (segmentId !== currentSegmentId) {
-          nextSegmentId = segmentId;
-          break;
+
+      // At junctions (3+ segments), prioritize segments the train actually came from
+      if (node.connectedSegments.length >= 3 && recentSegments) {
+        // First, try to find a segment that's in our history and not yet visited
+        for (const segmentId of node.connectedSegments) {
+          if (segmentId !== currentSegmentId &&
+              recentSegments.has(segmentId) &&
+              !visitedSegments.has(segmentId)) {
+            nextSegmentId = segmentId;
+            break;
+          }
+        }
+      }
+
+      // Fallback: just pick any other connected segment not yet visited
+      if (!nextSegmentId) {
+        for (const segmentId of node.connectedSegments) {
+          if (segmentId !== currentSegmentId && !visitedSegments.has(segmentId)) {
+            nextSegmentId = segmentId;
+            break;
+          }
         }
       }
 

@@ -6,6 +6,7 @@ import {
   TrackSegment,
   StraightGeometry,
   CurveGeometry,
+  Switch,
 } from '@/types/circuit.types';
 
 /**
@@ -300,6 +301,65 @@ export class GridCircuitBuilder {
   }
 
   /**
+   * Remove a segment and clean up all references
+   * - Removes segment from connected nodes
+   * - Deletes orphaned nodes
+   * - Deletes switches that reference this segment
+   */
+  static removeSegment(
+    segmentId: string,
+    segments: Map<string, TrackSegment>,
+    nodes: Map<string, TrackNode>,
+    switches: Map<string, Switch>
+  ): void {
+    const segment = segments.get(segmentId);
+    if (!segment) return;
+
+    // Remove segment from start node's connections
+    const startNode = nodes.get(segment.startNode);
+    if (startNode) {
+      startNode.connectedSegments = startNode.connectedSegments.filter(
+        (id) => id !== segmentId
+      );
+      this.updateNodeType(startNode);
+      // Delete orphaned nodes
+      if (startNode.connectedSegments.length === 0) {
+        nodes.delete(startNode.id);
+      }
+    }
+
+    // Remove segment from end node's connections
+    const endNode = nodes.get(segment.endNode);
+    if (endNode) {
+      endNode.connectedSegments = endNode.connectedSegments.filter(
+        (id) => id !== segmentId
+      );
+      this.updateNodeType(endNode);
+      // Delete orphaned nodes
+      if (endNode.connectedSegments.length === 0) {
+        nodes.delete(endNode.id);
+      }
+    }
+
+    // Delete switches that reference this segment
+    const switchesToDelete: string[] = [];
+    for (const [switchId, sw] of switches) {
+      if (
+        sw.incomingTrack === segmentId ||
+        sw.outgoingTracks.includes(segmentId)
+      ) {
+        switchesToDelete.push(switchId);
+      }
+    }
+    for (const switchId of switchesToDelete) {
+      switches.delete(switchId);
+    }
+
+    // Delete the segment
+    segments.delete(segmentId);
+  }
+
+  /**
    * Update node type based on connections
    */
   private static updateNodeType(node: TrackNode): void {
@@ -437,5 +497,131 @@ export class GridCircuitBuilder {
       gridX * gridSize + gridSize / 2,
       gridY * gridSize + gridSize / 2
     );
+  }
+
+  /**
+   * Find contiguous track segments for station placement (up to 3 cells)
+   * Returns segments in order along the track
+   */
+  static findContiguousSegments(
+    startSegment: TrackSegment,
+    segments: Map<string, TrackSegment>,
+    nodes: Map<string, TrackNode>,
+    maxCount: number = 3
+  ): string[] {
+    const result: string[] = [startSegment.id];
+    const visited = new Set<string>([startSegment.id]);
+
+    // Traverse backward from start node
+    const backwardSegments: string[] = [];
+    let currentSegmentId = startSegment.id;
+    let currentNodeId = startSegment.startNode;
+
+    while (backwardSegments.length < maxCount - 1) {
+      const node = nodes.get(currentNodeId);
+      if (!node) break;
+
+      // Find connected segment (not current, not visited)
+      let nextSegmentId: string | null = null;
+      for (const segId of node.connectedSegments) {
+        if (!visited.has(segId)) {
+          const seg = segments.get(segId);
+          if (seg && this.areSegmentsCompatibleForStation(startSegment, seg)) {
+            nextSegmentId = segId;
+            break;
+          }
+        }
+      }
+
+      if (!nextSegmentId) break;
+
+      const nextSegment = segments.get(nextSegmentId)!;
+      backwardSegments.unshift(nextSegmentId);
+      visited.add(nextSegmentId);
+
+      // Move to the other end of this segment
+      currentNodeId = nextSegment.startNode === currentNodeId
+        ? nextSegment.endNode
+        : nextSegment.startNode;
+    }
+
+    // Traverse forward from end node
+    const forwardSegments: string[] = [];
+    currentSegmentId = startSegment.id;
+    currentNodeId = startSegment.endNode;
+
+    while (forwardSegments.length < maxCount - 1 - backwardSegments.length) {
+      const node = nodes.get(currentNodeId);
+      if (!node) break;
+
+      // Find connected segment (not current, not visited)
+      let nextSegmentId: string | null = null;
+      for (const segId of node.connectedSegments) {
+        if (!visited.has(segId)) {
+          const seg = segments.get(segId);
+          if (seg && this.areSegmentsCompatibleForStation(startSegment, seg)) {
+            nextSegmentId = segId;
+            break;
+          }
+        }
+      }
+
+      if (!nextSegmentId) break;
+
+      const nextSegment = segments.get(nextSegmentId)!;
+      forwardSegments.push(nextSegmentId);
+      visited.add(nextSegmentId);
+
+      // Move to the other end of this segment
+      currentNodeId = nextSegment.startNode === currentNodeId
+        ? nextSegment.endNode
+        : nextSegment.startNode;
+    }
+
+    // Combine: backward + start + forward
+    return [...backwardSegments, ...result, ...forwardSegments].slice(0, maxCount);
+  }
+
+  /**
+   * Check if two segments are compatible for forming a station
+   * (same orientation or both straight tracks aligned)
+   */
+  static areSegmentsCompatibleForStation(
+    seg1: TrackSegment,
+    seg2: TrackSegment
+  ): boolean {
+    // Same orientation is always compatible
+    if (seg1.orientation === seg2.orientation) return true;
+
+    // Only straight tracks (horizontal/vertical) can form stations
+    const straightOrientations = ['horizontal', 'vertical'];
+    if (!straightOrientations.includes(seg1.orientation)) return false;
+    if (!straightOrientations.includes(seg2.orientation)) return false;
+
+    // Different straight orientations are not compatible
+    return false;
+  }
+
+  /**
+   * Determine which side of the track a point is on
+   */
+  static getSideOfTrack(
+    worldPos: Vector2D,
+    segment: TrackSegment
+  ): 'left' | 'right' {
+    const start = segment.geometry.start;
+    const end = segment.geometry.end;
+
+    // Direction vector from start to end
+    const direction = new Vector2D(end.x - start.x, end.y - start.y);
+
+    // Vector from start to the point
+    const toPoint = new Vector2D(worldPos.x - start.x, worldPos.y - start.y);
+
+    // Cross product (2D): direction.x * toPoint.y - direction.y * toPoint.x
+    // Positive = left side, Negative = right side
+    const cross = direction.x * toPoint.y - direction.y * toPoint.x;
+
+    return cross > 0 ? 'left' : 'right';
   }
 }

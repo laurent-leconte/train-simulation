@@ -6,13 +6,14 @@ import { GridRenderer } from '@/rendering/GridRenderer';
 import { TrackRenderer } from '@/rendering/renderers/TrackRenderer';
 import { TrainRenderer } from '@/rendering/renderers/TrainRenderer';
 import { SwitchRenderer } from '@/rendering/renderers/SwitchRenderer';
+import { StationRenderer } from '@/rendering/renderers/StationRenderer';
 import { GridCircuitBuilder } from '@/services/GridCircuitBuilder';
 import { TrainPhysics } from '@/services/TrainPhysics';
 import { TrainPathFollower } from '@/services/TrainPathFollower';
 import { TrackDrawingHelper, Side } from '@/services/TrackDrawingHelper';
 import { RailOrientation } from '@/types';
 import { Train, DEFAULT_TRAIN_SETTINGS } from '@/types/train.types';
-import { Switch } from '@/types/circuit.types';
+import { Switch, Station } from '@/types/circuit.types';
 import { nanoid } from 'nanoid';
 
 /**
@@ -44,10 +45,17 @@ export function TrackCanvas() {
     pathCells: [],
   });
 
+  // Station preview state
+  const [stationPreview, setStationPreview] = useState<{
+    segmentIds: string[];
+    side: 'left' | 'right';
+  } | null>(null);
+
   const gridRendererRef = useRef(new GridRenderer());
   const trackRendererRef = useRef(new TrackRenderer());
   const trainRendererRef = useRef(new TrainRenderer());
   const switchRendererRef = useRef(new SwitchRenderer());
+  const stationRendererRef = useRef(new StationRenderer());
 
   // Store selectors
   const viewport = useStore((state) => state.ui.viewport);
@@ -70,6 +78,7 @@ export function TrackCanvas() {
   const addSwitch = useStore((state) => state.addSwitch);
   const updateSwitch = useStore((state) => state.updateSwitch);
   const removeSwitch = useStore((state) => state.removeSwitch);
+  const addStation = useStore((state) => state.addStation);
 
   // Setup canvas
   useEffect(() => {
@@ -122,7 +131,7 @@ export function TrackCanvas() {
 
       // Update each train directly in the store
       simulation.trains.forEach((train) => {
-        // Create a mutable copy of the train with deep copy of position and carriages
+        // Create a mutable copy of the train with deep copy of position, carriages, and history
         const trainCopy = {
           ...train,
           position: {
@@ -134,15 +143,17 @@ export function TrackCanvas() {
             worldPosition: new Vector2D(cp.worldPosition.x, cp.worldPosition.y),
             direction: new Vector2D(cp.direction.x, cp.direction.y),
           })) : [],
+          positionHistory: train.positionHistory ? [...train.positionHistory] : [],
         };
 
-        // Update the train (pass switches for routing decisions)
+        // Update the train (pass switches for routing decisions, stations for stops)
         TrainPhysics.updateTrain(
           trainCopy,
           adjustedDelta,
           circuitGraph.edges,
           circuitGraph.nodes,
-          circuitGraph.switches
+          circuitGraph.switches,
+          circuitGraph.stations
         );
 
         // Update store with proper Vector2D instances for carriage positions
@@ -204,6 +215,24 @@ export function TrackCanvas() {
       renderCtx,
       selectedElement
     );
+
+    // Render stations
+    stationRendererRef.current.renderAll(
+      circuitGraph.stations,
+      circuitGraph.edges,
+      renderCtx,
+      selectedElement
+    );
+
+    // Render station placement preview
+    if (stationPreview && stationPreview.segmentIds.length > 0) {
+      stationRendererRef.current.renderPreview(
+        stationPreview.segmentIds,
+        stationPreview.side,
+        circuitGraph.edges,
+        ctx
+      );
+    }
 
     // Render trains
     trainRendererRef.current.renderAll(simulation.trains, renderCtx, selectedElement);
@@ -292,7 +321,7 @@ export function TrackCanvas() {
 
     // Render UI overlay (zoom level, etc.)
     renderOverlay(ctx, rect.width, rect.height);
-  }, [viewport, showGrid, gridSize, circuitGraph, selectedElement, hoveredGridCell, mode, selectedTool, simulation.trains, dragState]);
+  }, [viewport, showGrid, gridSize, circuitGraph, selectedElement, hoveredGridCell, mode, selectedTool, simulation.trains, dragState, stationPreview]);
 
   // Render overlay (UI elements in screen space)
   const renderOverlay = (
@@ -352,8 +381,12 @@ export function TrackCanvas() {
         const track = GridCircuitBuilder.getTrackAt(gridX, gridY, circuitGraph.edges);
         if (track) {
           useStore.setState((state) => {
-            state.circuit.graph.edges.delete(track.id);
-            // TODO: Clean up orphaned nodes
+            GridCircuitBuilder.removeSegment(
+              track.id,
+              state.circuit.graph.edges,
+              state.circuit.graph.nodes,
+              state.circuit.graph.switches
+            );
           });
         }
       }
@@ -448,6 +481,24 @@ export function TrackCanvas() {
   // Mouse down handler (start dragging for track tool, or panning)
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      // Handle station tool - place station on track (uses preview state)
+      if (mode === 'edit' && selectedTool.type === 'station' && e.button === 0) {
+        // Use the current preview if valid (3 segments minimum for a proper station)
+        if (stationPreview && stationPreview.segmentIds.length >= 1) {
+          const newStation: Station = {
+            id: nanoid(),
+            name: `Gare ${circuitGraph.stations.size + 1}`,
+            segmentIds: stationPreview.segmentIds,
+            side: stationPreview.side,
+            stopDuration: 5,
+          };
+
+          addStation(newStation);
+        }
+
+        return;
+      }
+
       // Handle switch tool - place or toggle switch
       if (mode === 'edit' && selectedTool.type === 'switch' && e.button === 0) {
         const canvas = canvasRef.current;
@@ -621,7 +672,7 @@ export function TrackCanvas() {
         e.preventDefault();
       }
     },
-    [mode, selectedTool, handleClick, viewport, circuitGraph, simulation.trains, addTrain, setSimulationRunning, findJunctionNodeAt, createSwitchAtNode, updateSwitch, gridSize]
+    [mode, selectedTool, handleClick, viewport, circuitGraph, simulation.trains, addTrain, setSimulationRunning, findJunctionNodeAt, createSwitchAtNode, updateSwitch, gridSize, addStation, stationPreview]
   );
 
   // Helper function to place a track at a grid position
@@ -822,6 +873,27 @@ export function TrackCanvas() {
       // Update hovered grid cell (only when not drawing)
       setHoveredGridCell({ gridX, gridY });
 
+      // Update station preview if station tool is active
+      if (mode === 'edit' && selectedTool.type === 'station') {
+        const segment = GridCircuitBuilder.getTrackAt(gridX, gridY, circuitGraph.edges);
+        if (segment) {
+          // Find contiguous segments (up to 3)
+          const segmentIds = GridCircuitBuilder.findContiguousSegments(
+            segment,
+            circuitGraph.edges,
+            circuitGraph.nodes,
+            3
+          );
+          // Determine which side of the track the cursor is on
+          const side = GridCircuitBuilder.getSideOfTrack(worldPos, segment);
+          setStationPreview({ segmentIds, side });
+        } else {
+          setStationPreview(null);
+        }
+      } else if (stationPreview) {
+        setStationPreview(null);
+      }
+
       const currentPos = new Vector2D(e.clientX, e.clientY);
 
       if (isPanning) {
@@ -832,7 +904,7 @@ export function TrackCanvas() {
         setLastMousePos(currentPos);
       }
     },
-    [isPanning, lastMousePos, viewport, adjustViewportPan, gridSize, dragState, circuitGraph, placeTrackAtCell]
+    [isPanning, lastMousePos, viewport, adjustViewportPan, gridSize, dragState, circuitGraph, placeTrackAtCell, mode, selectedTool, stationPreview]
   );
 
   // Mouse up handler (finish drawing and stop panning)
