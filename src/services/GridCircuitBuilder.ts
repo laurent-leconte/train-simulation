@@ -122,7 +122,6 @@ export class GridCircuitBuilder {
         const end = new Vector2D(worldX + gridSize, worldY + halfGrid);
         const kappa = 0.5522847498;
         const radius = halfGrid;
-        const center = new Vector2D(worldX + gridSize, worldY);
 
         // Arc from West to South around center
         const controlPoint1 = new Vector2D(
@@ -157,7 +156,6 @@ export class GridCircuitBuilder {
         const end = new Vector2D(worldX + gridSize, worldY + halfGrid);
         const kappa = 0.5522847498;
         const radius = halfGrid;
-        const center = new Vector2D(worldX + gridSize, worldY + gridSize);
 
         // Arc from West to North around center
         // CP1: move from start towards center, perpendicular offset
@@ -194,7 +192,6 @@ export class GridCircuitBuilder {
         const end = new Vector2D(worldX, worldY + halfGrid);
         const kappa = 0.5522847498;
         const radius = halfGrid;
-        const center = new Vector2D(worldX, worldY + gridSize);
 
         // Arc from East to North around center
         const controlPoint1 = new Vector2D(
@@ -229,7 +226,6 @@ export class GridCircuitBuilder {
         const end = new Vector2D(worldX, worldY + halfGrid);
         const kappa = 0.5522847498;
         const radius = halfGrid;
-        const center = new Vector2D(worldX, worldY);
 
         // Arc from East to South around center
         const controlPoint1 = new Vector2D(
@@ -403,7 +399,7 @@ export class GridCircuitBuilder {
     gridX: number,
     gridY: number,
     orientation: RailOrientation,
-    gridSize: number,
+    _gridSize: number,
     segments: Map<string, TrackSegment>
   ): boolean {
     // Check existing tracks in the same cell
@@ -514,7 +510,6 @@ export class GridCircuitBuilder {
 
     // Traverse backward from start node
     const backwardSegments: string[] = [];
-    let currentSegmentId = startSegment.id;
     let currentNodeId = startSegment.startNode;
 
     while (backwardSegments.length < maxCount - 1) {
@@ -547,7 +542,6 @@ export class GridCircuitBuilder {
 
     // Traverse forward from end node
     const forwardSegments: string[] = [];
-    currentSegmentId = startSegment.id;
     currentNodeId = startSegment.endNode;
 
     while (forwardSegments.length < maxCount - 1 - backwardSegments.length) {

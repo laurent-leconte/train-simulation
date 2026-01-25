@@ -188,7 +188,7 @@ export class TrainPathFollower {
   static findNextSegment(
     currentSegment: TrackSegment,
     atStart: boolean,
-    segments: Map<string, TrackSegment>,
+    _segments: Map<string, TrackSegment>,
     nodes: Map<string, TrackNode>,
     switches?: Map<string, Switch>
   ): string | null {

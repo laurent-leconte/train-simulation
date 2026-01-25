@@ -154,7 +154,7 @@ export class TrainRenderer {
     ctx: CanvasRenderingContext2D,
     x: number,
     y: number,
-    velocity: number
+    _velocity: number
   ): void {
     const time = Date.now() / 200; // Animation speed
     const puffCount = 3;

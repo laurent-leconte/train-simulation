@@ -132,7 +132,7 @@ export class TrackRenderer {
   private drawTiesStraight(
     start: Vector2D,
     end: Vector2D,
-    direction: Vector2D,
+    _direction: Vector2D,
     perpendicular: Vector2D,
     ctx: CanvasRenderingContext2D
   ): void {
@@ -401,9 +401,9 @@ export class TrackRenderer {
    * Render nodes (connections between segments)
    */
   renderNodes(
-    nodes: Map<string, any>,
-    renderCtx: RenderingContext,
-    selectedId?: string | null
+    _nodes: Map<string, any>,
+    _renderCtx: RenderingContext,
+    _selectedId?: string | null
   ): void {
     // Optionally render nodes for debugging
     // For now we skip this to keep the graphics clean

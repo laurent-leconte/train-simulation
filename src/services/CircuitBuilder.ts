@@ -3,7 +3,6 @@ import { Vector2D } from '@/core/geometry/Vector2D';
 import {
   TrackNode,
   TrackSegment,
-  TrackGeometry,
   StraightGeometry,
   CurveGeometry,
 } from '@/types/circuit.types';
@@ -99,10 +98,13 @@ export class CircuitBuilder {
     const segment: TrackSegment = {
       id: nanoid(),
       type: 'straight',
+      orientation: 'horizontal',
       startNode: startNode.id,
       endNode: endNode.id,
       geometry,
       length,
+      gridX: 0,
+      gridY: 0,
     };
 
     // Update node connections
@@ -158,10 +160,13 @@ export class CircuitBuilder {
     const segment: TrackSegment = {
       id: nanoid(),
       type: 'curve',
+      orientation: 'curve-ne',
       startNode: startNode.id,
       endNode: endNode.id,
       geometry,
       length,
+      gridX: 0,
+      gridY: 0,
     };
 
     // Update node connections
@@ -254,7 +259,7 @@ export class CircuitBuilder {
   static validateSegment(
     start: Vector2D,
     end: Vector2D,
-    segments: Map<string, TrackSegment>
+    _segments: Map<string, TrackSegment>
   ): boolean {
     // Check minimum length
     const minLength = 20;

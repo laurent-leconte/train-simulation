@@ -61,7 +61,7 @@ export function TrackCanvas() {
   const viewport = useStore((state) => state.ui.viewport);
   const showGrid = useStore((state) => state.editor.showGrid);
   const gridSize = useStore((state) => state.editor.gridSize);
-  const snapToGrid = useStore((state) => state.editor.snapToGrid);
+  // const snapToGrid = useStore((state) => state.editor.snapToGrid);
   const selectedTool = useStore((state) => state.editor.selectedTool);
   const selectedElement = useStore((state) => state.editor.selectedElement);
   const mode = useStore((state) => state.editor.mode);
@@ -71,13 +71,13 @@ export function TrackCanvas() {
 
   const setViewportZoom = useStore((state) => state.setViewportZoom);
   const adjustViewportPan = useStore((state) => state.adjustViewportPan);
-  const addTrackSegment = useStore((state) => state.addTrackSegment);
-  const setSelectedElement = useStore((state) => state.setSelectedElement);
+  // const addTrackSegment = useStore((state) => state.addTrackSegment);
+  // const setSelectedElement = useStore((state) => state.setSelectedElement);
   const addTrain = useStore((state) => state.addTrain);
   const setSimulationRunning = useStore((state) => state.setSimulationRunning);
   const addSwitch = useStore((state) => state.addSwitch);
   const updateSwitch = useStore((state) => state.updateSwitch);
-  const removeSwitch = useStore((state) => state.removeSwitch);
+  // const removeSwitch = useStore((state) => state.removeSwitch);
   const addStation = useStore((state) => state.addStation);
 
   // Setup canvas
@@ -326,8 +326,8 @@ export function TrackCanvas() {
   // Render overlay (UI elements in screen space)
   const renderOverlay = (
     ctx: CanvasRenderingContext2D,
-    width: number,
-    height: number
+    _width: number,
+    _height: number
   ) => {
     ctx.save();
     ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
