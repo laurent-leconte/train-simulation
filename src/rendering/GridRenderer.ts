@@ -7,10 +7,11 @@ import { IsoDrawable, worldDepth, shade } from './iso';
  */
 export class GridRenderer {
   private treePositions: Array<{ x: number; y: number; type: number }> = [];
+  private bushPositions: Array<{ x: number; y: number; type: number }> = [];
   private lastSeedUpdate = 0;
 
   /**
-   * Initialize tree positions based on a seed
+   * Initialize tree + bush positions based on a seed
    */
   private initializeTrees(seed: number, gridSize: number): void {
     if (this.lastSeedUpdate === seed && this.treePositions.length > 0) {
@@ -19,24 +20,34 @@ export class GridRenderer {
 
     this.lastSeedUpdate = seed;
     this.treePositions = [];
+    this.bushPositions = [];
 
-    // Generate pseudo-random tree positions
+    // Generate pseudo-random positions
     const random = (x: number, y: number) => {
       const value = Math.sin(x * 12.9898 + y * 78.233 + seed) * 43758.5453;
       return value - Math.floor(value);
     };
 
-    // Generate trees in a grid pattern with randomness
+    // Scatter trees and (more numerous, smaller) bushes across the grid.
     for (let gx = -50; gx < 50; gx++) {
       for (let gy = -50; gy < 50; gy++) {
         const rand = random(gx, gy);
-        // About 3% chance of tree
         if (rand < 0.03) {
+          // ~3% chance of a tree
           const treeType = Math.floor(random(gx + 1000, gy + 1000) * 3);
           this.treePositions.push({
             x: gx * gridSize + gridSize / 2,
             y: gy * gridSize + gridSize / 2,
             type: treeType,
+          });
+        } else if (rand < 0.16) {
+          // ~13% chance of low greenery (bush / shrub / tuft), offset in-cell
+          const ox = (random(gx + 7000, gy + 3000) - 0.5) * gridSize * 0.7;
+          const oy = (random(gx + 3000, gy + 7000) - 0.5) * gridSize * 0.7;
+          this.bushPositions.push({
+            x: gx * gridSize + gridSize / 2 + ox,
+            y: gy * gridSize + gridSize / 2 + oy,
+            type: Math.floor(random(gx + 9000, gy + 9000) * 3),
           });
         }
       }
@@ -130,35 +141,25 @@ export class GridRenderer {
     ctx.fillStyle = grassPattern;
     ctx.fillRect(startX - gridSize, startY - gridSize, endX - startX + gridSize * 2, endY - startY + gridSize * 2);
 
-    // Add grass texture (small random patches)
-    ctx.fillStyle = 'rgba(74, 103, 65, 0.3)';
-    const random = (x: number, y: number) => {
-      const value = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
-      return value - Math.floor(value);
-    };
-
-    for (let gx = Math.floor(startX / 10); gx < endX / 10; gx++) {
-      for (let gy = Math.floor(startY / 10); gy < endY / 10; gy++) {
-        if (random(gx, gy) > 0.7) {
-          ctx.fillRect(gx * 10, gy * 10, 3, 3);
-        }
-      }
-    }
-
     ctx.restore();
 
-    // Initialize trees. In top-down they are flat ground decals drawn here;
-    // in iso they have height and are drawn in the depth-sorted tall phase
-    // (see collectIsoTrees), so we skip them here.
+    // Trees + bushes. In top-down they are flat ground decals drawn here; in
+    // iso they have height and are drawn in the depth-sorted tall phase (see
+    // collectIsoTrees / collectIsoBushes), so we skip them here.
     this.initializeTrees(12345, gridSize);
 
     if (renderCtx.getViewMode() === 'topdown') {
       ctx.save();
-      // Draw trees that are in view (skip cells occupied by track)
+      const inView = (p: { x: number; y: number }) =>
+        p.x >= startX - 20 && p.x <= endX + 20 && p.y >= startY - 20 && p.y <= endY + 20;
+      // Bushes first (low greenery), then trees on top
+      for (const bush of this.bushPositions) {
+        if (inView(bush) && !this.treeIsOccluded(bush, gridSize, occupiedCells)) {
+          this.drawBush(ctx, bush.x, bush.y, bush.type);
+        }
+      }
       for (const tree of this.treePositions) {
-        if (tree.x >= startX - 20 && tree.x <= endX + 20 &&
-            tree.y >= startY - 20 && tree.y <= endY + 20 &&
-            !this.treeIsOccluded(tree, gridSize, occupiedCells)) {
+        if (inView(tree) && !this.treeIsOccluded(tree, gridSize, occupiedCells)) {
           this.drawTree(ctx, tree.x, tree.y, tree.type);
         }
       }
@@ -223,8 +224,37 @@ export class GridRenderer {
   }
 
   /**
-   * A tree is hidden when its grid cell is occupied by a track segment, so it
-   * doesn't poke through the rails.
+   * Collect in-view bushes as depth-tagged billboards for the iso tall phase.
+   */
+  collectIsoBushes(
+    renderCtx: RenderingContext,
+    gridSize: number,
+    occupiedCells?: Set<string>
+  ): IsoDrawable[] {
+    const ctx = renderCtx.getContext();
+    const bounds = renderCtx.getVisibleBounds();
+    this.initializeTrees(12345, gridSize);
+
+    const drawables: IsoDrawable[] = [];
+    for (const bush of this.bushPositions) {
+      if (
+        bush.x >= bounds.min.x - 20 && bush.x <= bounds.max.x + 20 &&
+        bush.y >= bounds.min.y - 20 && bush.y <= bounds.max.y + 20 &&
+        !this.treeIsOccluded(bush, gridSize, occupiedCells)
+      ) {
+        const b = bush;
+        drawables.push({
+          depth: worldDepth(new Vector2D(b.x, b.y)),
+          draw: () => this.drawBushIso(ctx, renderCtx, b.x, b.y, b.type),
+        });
+      }
+    }
+    return drawables;
+  }
+
+  /**
+   * A tree/bush is hidden when its grid cell is occupied by a track segment, so
+   * it doesn't poke through the rails.
    */
   private treeIsOccluded(
     tree: { x: number; y: number },
@@ -298,6 +328,61 @@ export class GridRenderer {
       }
     }
 
+    ctx.restore();
+  }
+
+  private static readonly BUSH_GREENS = ['#3A5F3A', '#46703F', '#33572F'];
+
+  private bushBlobs(type: number): Array<[number, number, number]> {
+    if (type === 0) return [[-4, 0, 4], [4, 0, 4], [0, -2, 5]];
+    if (type === 1) return [[-5, 0, 3.5], [0, -1, 5], [5, 0, 3.5]];
+    return [[-2, 0, 5], [2, 0, 5]];
+  }
+
+  /** Draw a low bush as a flat cluster (top-down ground decal, world space). */
+  private drawBush(ctx: CanvasRenderingContext2D, x: number, y: number, type: number): void {
+    const color = GridRenderer.BUSH_GREENS[type % 3];
+    ctx.fillStyle = color;
+    for (const [dx, dy, r] of this.bushBlobs(type)) {
+      ctx.beginPath();
+      ctx.arc(x + dx, y + dy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = shade(color, 1.25);
+    ctx.beginPath();
+    ctx.arc(x - 1.5, y - 1.5, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /** Draw a low bush as a small billboard anchored at its projected base. */
+  private drawBushIso(
+    ctx: CanvasRenderingContext2D,
+    renderCtx: RenderingContext,
+    worldX: number,
+    worldY: number,
+    type: number
+  ): void {
+    const z = renderCtx.getViewport().zoom;
+    const base = renderCtx.worldToScreen(new Vector2D(worldX, worldY));
+    const color = GridRenderer.BUSH_GREENS[type % 3];
+
+    ctx.save();
+    // Soft shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.14)';
+    ctx.beginPath();
+    ctx.ellipse(base.x, base.y, 6 * z, 3 * z, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Foliage, lifted slightly off the ground
+    ctx.fillStyle = color;
+    for (const [dx, dy, r] of this.bushBlobs(type)) {
+      ctx.beginPath();
+      ctx.arc(base.x + dx * z, base.y - 3 * z + dy * z, r * z, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = shade(color, 1.25);
+    ctx.beginPath();
+    ctx.arc(base.x - 2 * z, base.y - 5 * z, 2 * z, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 }

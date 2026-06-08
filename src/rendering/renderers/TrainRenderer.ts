@@ -8,6 +8,7 @@ import {
   drawIsoCylinder,
   drawIsoVCylinder,
   drawIsoDisc,
+  drawIsoCapsule,
   shade,
   faceQuad,
   fillPoly,
@@ -137,8 +138,10 @@ export class TrainRenderer {
           decorateFace: (face) => {
             // Waist stripe (cream — high contrast against the body)
             fillPoly(ctx, faceQuad(face, 0.0, 0.28, 1.0, 0.4), '#e8dcc0');
-            // Window band
-            const n = 4;
+            // Window band — long sides get 4 windows, short ends get 2.
+            const [bi, bj] = face.corners;
+            const approxLen = Math.hypot(bj.x - bi.x, bj.y - bi.y) / renderCtx.getViewport().zoom;
+            const n = approxLen > 20 ? 4 : 2;
             const slot = 0.78 / n;
             for (let k = 0; k < n; k++) {
               const u0 = 0.11 + k * slot + slot * 0.2;
@@ -151,15 +154,15 @@ export class TrainRenderer {
         }),
     });
 
-    // Rounded roof (half-cylinder along the body)
+    // Rounded roof (half-cylinder along the body); caps close the ends.
     parts.push({
       layer: 2,
       depth: pos.x + pos.y + 0.1,
       draw: () =>
-        drawIsoCylinder(ctx, renderCtx, pos, dir, length / 2, halfWid, floorZ + bodyH, shade(color, 0.7), {
+        drawIsoCylinder(ctx, renderCtx, pos, dir, length / 2, halfWid, floorZ + bodyH, shade(color, 0.78), {
           arcStart: 0,
           arcEnd: Math.PI,
-          caps: false,
+          caps: true,
         }),
     });
 
@@ -191,49 +194,72 @@ export class TrainRenderer {
     const nearSign = px + py >= 0 ? 1 : -1;
     const along = (d: number) => new Vector2D(pos.x + fx * d, pos.y + fy * d);
 
-    const wheelR = W * 0.3;
     const boilerR = W * 0.4;
     const boilerZ = W * 0.62; // axis height (leaves room for wheels below)
     const boilerTop = boilerZ + boilerR;
 
     const parts: Part[] = [];
 
-    // Driving wheels (three per side), near/far split.
-    for (const wx of [L * 0.2, L * 0.0, -L * 0.2]) {
+    const driveWheelR = W * 0.3;
+    const cabWheelR = W * 0.44; // larger wheel under the cab
+    const wheelOffset = W * 0.46;
+    const addWheels = (wx: number, r: number) => {
       for (const s of [1, -1]) {
-        const c = new Vector2D(pos.x + fx * wx + px * W * 0.46 * s, pos.y + fy * wx + py * W * 0.46 * s);
-        parts.push({ layer: s === nearSign ? 4 : 0, depth: c.x + c.y, draw: () => drawIsoDisc(ctx, renderCtx, c, dir, wheelR, wheelR, '#14171b') });
+        const c = new Vector2D(pos.x + fx * wx + px * wheelOffset * s, pos.y + fy * wx + py * wheelOffset * s);
+        parts.push({ layer: s === nearSign ? 4 : 0, depth: c.x + c.y, draw: () => drawIsoDisc(ctx, renderCtx, c, dir, r, r, '#14171b') });
       }
-    }
+    };
 
-    // Boiler (cylinder) + smokebox cap is its front face.
-    const boilerC = along(L * 0.08);
+    // Boiler as a round capsule, with smokebox door + oval headlamp at the front.
+    const boilerC = along(L * 0.06);
+    const boilerHalf = L * 0.34;
     parts.push({
       layer: 1,
       depth: boilerC.x + boilerC.y,
-      draw: () => drawIsoCylinder(ctx, renderCtx, boilerC, dir, L * 0.34, boilerR, boilerZ, body, { outline: true }),
+      draw: () => {
+        drawIsoCapsule(ctx, renderCtx, boilerC, dir, boilerHalf, boilerR, boilerZ, body);
+        const front = renderCtx.project(along(L * 0.06 + boilerHalf), boilerZ);
+        const rs = boilerR * renderCtx.getViewport().zoom;
+        // Smokebox door (dark) on the front cap
+        ctx.beginPath();
+        ctx.arc(front.x, front.y, rs * 0.85, 0, Math.PI * 2);
+        ctx.fillStyle = shade(body, 0.4);
+        ctx.fill();
+        // Headlamp — a small oval, foreshortened like the front face
+        ctx.fillStyle = '#FFF1A8';
+        ctx.beginPath();
+        ctx.ellipse(front.x, front.y + rs * 0.12, rs * 0.22, rs * 0.34, 0, 0, Math.PI * 2);
+        ctx.fill();
+      },
     });
 
-    // Cab (box) at the rear.
-    const cabC = along(-L * 0.36);
-    const cabH = W * 1.2;
+    // Three driving wheels, centered under the boiler.
+    for (const wx of [L * 0.06 - L * 0.16, L * 0.06, L * 0.06 + L * 0.16]) addWheels(wx, driveWheelR);
+
+    // Cab at the rear, raised on a footplate so a larger wheel shows beneath.
+    const cabC = along(-L * 0.34);
+    const cabBase = W * 0.42;
+    const cabH = W * 0.82;
+    const cabTop = cabBase + cabH;
+    addWheels(-L * 0.34, cabWheelR);
     parts.push({
       layer: 1,
       depth: cabC.x + cabC.y,
       draw: () =>
         drawIsoOrientedBox(ctx, renderCtx, cabC, dir, L * 0.14, W * 0.5, cabH, cabColor, {
+          baseHeight: cabBase,
           selected: isSelected,
           decorateFace: (face) => {
-            fillPoly(ctx, faceQuad(face, 0.22, 0.42, 0.78, 0.8), '#bfe3f2', 'rgba(0,0,0,0.3)');
+            fillPoly(ctx, faceQuad(face, 0.22, 0.4, 0.78, 0.82), '#bfe3f2', 'rgba(0,0,0,0.3)');
           },
         }),
     });
 
-    // Curved cab roof (half-cylinder).
+    // Curved cab roof (half-cylinder), capped ends.
     parts.push({
       layer: 2,
       depth: cabC.x + cabC.y + 0.1,
-      draw: () => drawIsoCylinder(ctx, renderCtx, cabC, dir, L * 0.15, W * 0.5, cabH, '#3a3a3a', { arcStart: 0, arcEnd: Math.PI, caps: false }),
+      draw: () => drawIsoCylinder(ctx, renderCtx, cabC, dir, L * 0.15, W * 0.5, cabTop, '#3a3a3a', { arcStart: 0, arcEnd: Math.PI, caps: true }),
     });
 
     // Smokestack (vertical cylinder, on the boiler near the front).
@@ -270,12 +296,6 @@ export class TrainRenderer {
         ctx.fill();
       }
     }
-
-    const lamp = renderCtx.project(along(L * 0.42), boilerZ);
-    ctx.fillStyle = '#FFF59D';
-    ctx.beginPath();
-    ctx.arc(lamp.x, lamp.y, 2.2 * z, 0, Math.PI * 2);
-    ctx.fill();
   }
 
   /**

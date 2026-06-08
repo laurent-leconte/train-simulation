@@ -444,3 +444,66 @@ export function drawIsoDisc(
   fillPoly(ctx, ellipse(radius), color, 'rgba(0,0,0,0.45)');
   fillPoly(ctx, ellipse(radius * 0.4), shade(color, 2.0)); // hub
 }
+
+/**
+ * Draw a horizontal "capsule" cylinder with a round (circular) cross-section
+ * and a cylindrical top-to-bottom light gradient. Unlike drawIsoCylinder this
+ * keeps the cross-section visually round at any heading (used for the boiler).
+ * Returns the front/rear cap screen centers and screen radius so callers can
+ * add details (smokebox door, headlamp).
+ */
+export function drawIsoCapsule(
+  ctx: CanvasRenderingContext2D,
+  rc: RenderingContext,
+  center: Vector2D,
+  direction: Vector2D,
+  halfLen: number,
+  radius: number,
+  axisHeight: number,
+  color: string
+): { front: Vector2D; rear: Vector2D; screenRadius: number } {
+  const zoom = rc.getViewport().zoom;
+  const len = Math.hypot(direction.x, direction.y) || 1;
+  const fx = direction.x / len;
+  const fy = direction.y / len;
+  const A = rc.project(new Vector2D(center.x + fx * halfLen, center.y + fy * halfLen), axisHeight);
+  const B = rc.project(new Vector2D(center.x - fx * halfLen, center.y - fy * halfLen), axisHeight);
+  const rs = radius * zoom;
+
+  // Screen axis + perpendicular.
+  let ax = A.x - B.x;
+  let ay = A.y - B.y;
+  const al = Math.hypot(ax, ay) || 1;
+  ax /= al;
+  ay /= al;
+  const pxs = -ay;
+  const pys = ax;
+
+  // Gradient across the tube: the upper screen side is lit.
+  const sgn = pys < 0 ? 1 : -1;
+  const mx = (A.x + B.x) / 2;
+  const my = (A.y + B.y) / 2;
+  const g = ctx.createLinearGradient(mx + pxs * rs * sgn, my + pys * rs * sgn, mx - pxs * rs * sgn, my - pys * rs * sgn);
+  g.addColorStop(0, shade(color, 1.18));
+  g.addColorStop(0.45, shade(color, 0.98));
+  g.addColorStop(1, shade(color, 0.52));
+  ctx.fillStyle = g;
+
+  // Body (stadium) + round caps, filled separately with the same (canvas-space)
+  // gradient so they blend without winding artifacts.
+  ctx.beginPath();
+  ctx.moveTo(A.x + pxs * rs, A.y + pys * rs);
+  ctx.lineTo(B.x + pxs * rs, B.y + pys * rs);
+  ctx.lineTo(B.x - pxs * rs, B.y - pys * rs);
+  ctx.lineTo(A.x - pxs * rs, A.y - pys * rs);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(A.x, A.y, rs, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(B.x, B.y, rs, 0, Math.PI * 2);
+  ctx.fill();
+
+  return { front: A, rear: B, screenRadius: rs };
+}

@@ -16,7 +16,7 @@ export class TrackRenderer {
   private readonly RAIL_WIDTH = 2; // Width of each rail
   private readonly TIE_WIDTH = 12; // Width of cross ties
   private readonly TIE_HEIGHT = 2; // Height of cross ties
-  private readonly TIE_SPACING = 15; // Spacing between ties
+  private readonly TIE_SPACING = 6; // Spacing between ties (shared by straight + curve)
 
   /**
    * Render all track segments
@@ -193,11 +193,13 @@ export class TrackRenderer {
     }
     ctx.stroke();
 
-    // Draw ties
+    // Draw ties — same density as straights, derived from arc length.
+    const arcLength = geometry.radius * geometry.arc;
+    const tieCount = Math.max(3, Math.round(arcLength / this.TIE_SPACING));
     if (isCubic) {
-      this.drawTiesCurvedCubic(start, controlPoint1, controlPoint2, end, ctx);
+      this.drawTiesCurvedCubic(start, controlPoint1, controlPoint2, end, ctx, tieCount);
     } else {
-      this.drawTiesCurved(start, controlPoint1, end, ctx);
+      this.drawTiesCurved(start, controlPoint1, end, ctx, tieCount);
     }
 
     // Draw rails as offset curves with realistic steel color
@@ -324,10 +326,9 @@ export class TrackRenderer {
     start: Vector2D,
     controlPoint: Vector2D,
     end: Vector2D,
-    ctx: CanvasRenderingContext2D
+    ctx: CanvasRenderingContext2D,
+    samples = 20
   ): void {
-    // Same as cubic but for quadratic
-    const samples = 20;
 
     for (let i = 0; i <= samples; i++) {
       const t = i / samples;
@@ -365,9 +366,9 @@ export class TrackRenderer {
     cp1: Vector2D,
     cp2: Vector2D,
     end: Vector2D,
-    ctx: CanvasRenderingContext2D
+    ctx: CanvasRenderingContext2D,
+    samples = 20
   ): void {
-    const samples = 20;
 
     for (let i = 0; i <= samples; i++) {
       const t = i / samples;

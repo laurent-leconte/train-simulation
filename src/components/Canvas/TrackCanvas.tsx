@@ -333,6 +333,7 @@ export function TrackCanvas() {
     if (viewMode === 'iso') {
       const drawables: IsoDrawable[] = [
         ...gridRendererRef.current.collectIsoTrees(renderCtx, gridSize, occupiedCells),
+        ...gridRendererRef.current.collectIsoBushes(renderCtx, gridSize, occupiedCells),
         ...stationRendererRef.current.collectIsoDrawables(
           circuitGraph.stations,
           circuitGraph.edges,
