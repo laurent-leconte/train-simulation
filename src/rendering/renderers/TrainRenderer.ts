@@ -1,12 +1,30 @@
 import { Vector2D } from '@/core/geometry/Vector2D';
 import { Train, CarriagePosition } from '@/types/train.types';
 import { RenderingContext } from '../RenderingContext';
-import { IsoDrawable, worldDepth, drawIsoOrientedBox, shade, faceQuad, fillPoly } from '../iso';
+import {
+  IsoDrawable,
+  worldDepth,
+  drawIsoOrientedBox,
+  drawIsoCylinder,
+  drawIsoVCylinder,
+  drawIsoDisc,
+  shade,
+  faceQuad,
+  fillPoly,
+} from '../iso';
 
-// Heights in world units for iso extrusion
-const LOCO_HEIGHT = 13;
-const CAB_HEIGHT = 18;
-const CARRIAGE_HEIGHT = 12;
+// A loco/carriage part with paint order: lower layer first, then by scene depth.
+interface Part {
+  layer: number;
+  depth: number;
+  draw: () => void;
+}
+
+/** Paint parts back-to-front: by layer, then by scene depth within a layer. */
+function drawParts(parts: Part[]): void {
+  parts.sort((a, b) => (a.layer !== b.layer ? a.layer - b.layer : a.depth - b.depth));
+  for (const p of parts) p.draw();
+}
 
 /**
  * Renders trains on the canvas
@@ -71,8 +89,8 @@ export class TrainRenderer {
   }
 
   /**
-   * Draw a passenger carriage as an extruded box with an underframe, a window
-   * band, a waist stripe and a slightly lighter roof.
+   * Draw a passenger carriage: a body elevated over its bogies, a rounded roof,
+   * a window band, a high-contrast waist stripe, and four wheels.
    */
   private drawCarriageIso(
     ctx: CanvasRenderingContext2D,
@@ -82,39 +100,76 @@ export class TrainRenderer {
     width: number,
     color: string
   ): void {
-    drawIsoOrientedBox(
-      ctx,
-      renderCtx,
-      cp.worldPosition,
-      cp.direction,
-      length / 2,
-      width / 2,
-      CARRIAGE_HEIGHT,
-      color,
-      {
-        topColor: shade(color, 1.18),
-        decorateFace: (face) => {
-          // Underframe / skirt
-          fillPoly(ctx, faceQuad(face, 0.0, 0.0, 1.0, 0.16), 'rgba(15,15,15,0.85)');
-          // Window band
-          const n = 4;
-          const span = 0.78;
-          const slot = span / n;
-          for (let k = 0; k < n; k++) {
-            const u0 = 0.11 + k * slot + slot * 0.18;
-            const u1 = 0.11 + k * slot + slot * 0.82;
-            fillPoly(ctx, faceQuad(face, u0, 0.44, u1, 0.74), '#bfe3f2', 'rgba(0,0,0,0.3)');
-          }
-          // Waist stripe just below the windows
-          fillPoly(ctx, faceQuad(face, 0.0, 0.34, 1.0, 0.4), shade(color, 0.6));
-        },
+    const pos = cp.worldPosition;
+    const dir = cp.direction;
+    const W = width;
+    const len = Math.hypot(dir.x, dir.y) || 1;
+    const fx = dir.x / len;
+    const fy = dir.y / len;
+    const px = -fy;
+    const py = fx;
+    const nearSign = px + py >= 0 ? 1 : -1;
+
+    const wheelR = W * 0.2;
+    const floorZ = W * 0.32;
+    const bodyH = W * 1.05;
+    const halfWid = W * 0.46;
+
+    const parts: Part[] = [];
+
+    // Bogie wheels (two near each end), split near/far so the body occludes
+    // the far ones and the near ones sit in front.
+    for (const wx of [length * 0.34, length * 0.12, -length * 0.12, -length * 0.34]) {
+      for (const s of [1, -1]) {
+        const c = new Vector2D(pos.x + fx * wx + px * halfWid * 0.85 * s, pos.y + fy * wx + py * halfWid * 0.85 * s);
+        parts.push({ layer: s === nearSign ? 3 : 0, depth: c.x + c.y, draw: () => drawIsoDisc(ctx, renderCtx, c, dir, wheelR, wheelR, '#14171b') });
       }
-    );
+    }
+
+    // Body
+    parts.push({
+      layer: 1,
+      depth: pos.x + pos.y,
+      draw: () =>
+        drawIsoOrientedBox(ctx, renderCtx, pos, dir, length / 2, halfWid, bodyH, color, {
+          baseHeight: floorZ,
+          topColor: shade(color, 1.1),
+          decorateFace: (face) => {
+            // Waist stripe (cream — high contrast against the body)
+            fillPoly(ctx, faceQuad(face, 0.0, 0.28, 1.0, 0.4), '#e8dcc0');
+            // Window band
+            const n = 4;
+            const slot = 0.78 / n;
+            for (let k = 0; k < n; k++) {
+              const u0 = 0.11 + k * slot + slot * 0.2;
+              const u1 = 0.11 + k * slot + slot * 0.8;
+              fillPoly(ctx, faceQuad(face, u0, 0.48, u1, 0.82), '#bfe3f2', 'rgba(0,0,0,0.3)');
+            }
+            // Underframe shadow
+            fillPoly(ctx, faceQuad(face, 0.0, 0.0, 1.0, 0.1), 'rgba(10,10,10,0.8)');
+          },
+        }),
+    });
+
+    // Rounded roof (half-cylinder along the body)
+    parts.push({
+      layer: 2,
+      depth: pos.x + pos.y + 0.1,
+      draw: () =>
+        drawIsoCylinder(ctx, renderCtx, pos, dir, length / 2, halfWid, floorZ + bodyH, shade(color, 0.7), {
+          arcStart: 0,
+          arcEnd: Math.PI,
+          caps: false,
+        }),
+    });
+
+    drawParts(parts);
   }
 
   /**
-   * Draw the locomotive as a small steam engine: boiler + cab (depth-sorted
-   * bodies), then chimney + dome on top, then headlamp and steam.
+   * Draw the locomotive as a small steam engine built from primitives:
+   * cylindrical boiler, smokebox, cab with a curved roof, stack + domes sitting
+   * on the boiler, driving wheels, headlamp and steam.
    */
   private drawLocomotiveIso(
     ctx: CanvasRenderingContext2D,
@@ -126,70 +181,97 @@ export class TrainRenderer {
     const L = train.length;
     const W = train.width;
     const body = train.color || '#8B0000';
-    const cabColor = shade(body, 0.55);
+    const cabColor = '#1c1c1c';
 
-    const along = (d: number) => new Vector2D(pos.x + dir.x * d, pos.y + dir.y * d);
+    const len = Math.hypot(dir.x, dir.y) || 1;
+    const fx = dir.x / len;
+    const fy = dir.y / len;
+    const px = -fy;
+    const py = fx;
+    const nearSign = px + py >= 0 ? 1 : -1;
+    const along = (d: number) => new Vector2D(pos.x + fx * d, pos.y + fy * d);
 
-    // Two main bodies, drawn far-to-near so the cab occludes correctly.
-    const boilerCenter = along(L * 0.1);
-    const cabCenter = along(-L * 0.3);
-    const bodies = [
-      {
-        depth: worldDepth(boilerCenter),
-        draw: () =>
-          drawIsoOrientedBox(ctx, renderCtx, boilerCenter, dir, L * 0.4, W * 0.42, LOCO_HEIGHT, body, {
-            selected: isSelected,
-            topColor: shade(body, 1.15),
-            decorateFace: (face) => {
-              // Boiler bands
-              for (const u of [0.25, 0.5, 0.75]) {
-                fillPoly(ctx, faceQuad(face, u - 0.02, 0.05, u + 0.02, 0.95), shade('#FFD700', 0.9));
-              }
-            },
-          }),
-      },
-      {
-        depth: worldDepth(cabCenter),
-        draw: () =>
-          drawIsoOrientedBox(ctx, renderCtx, cabCenter, dir, L * 0.2, W / 2, CAB_HEIGHT, cabColor, {
-            selected: isSelected,
-            topColor: shade(cabColor, 1.2),
-            decorateFace: (face) => {
-              // Cab window
-              fillPoly(ctx, faceQuad(face, 0.25, 0.45, 0.75, 0.8), '#bfe3f2', 'rgba(0,0,0,0.3)');
-            },
-          }),
-      },
-    ];
-    bodies.sort((a, b) => a.depth - b.depth).forEach((p) => p.draw());
+    const wheelR = W * 0.3;
+    const boilerR = W * 0.4;
+    const boilerZ = W * 0.62; // axis height (leaves room for wheels below)
+    const boilerTop = boilerZ + boilerR;
 
-    // Chimney + steam dome sit on top of the boiler.
-    const chimney = along(L * 0.32);
-    const dome = along(L * 0.05);
-    const fittings = [
-      { depth: worldDepth(dome), draw: () => drawIsoOrientedBox(ctx, renderCtx, dome, dir, W * 0.16, W * 0.22, LOCO_HEIGHT + 4, '#3a3a3a') },
-      { depth: worldDepth(chimney), draw: () => drawIsoOrientedBox(ctx, renderCtx, chimney, dir, W * 0.16, W * 0.16, LOCO_HEIGHT + 9, '#2b2b2b', { topColor: '#444' }) },
-    ];
-    fittings.sort((a, b) => a.depth - b.depth).forEach((p) => p.draw());
+    const parts: Part[] = [];
 
+    // Driving wheels (three per side), near/far split.
+    for (const wx of [L * 0.2, L * 0.0, -L * 0.2]) {
+      for (const s of [1, -1]) {
+        const c = new Vector2D(pos.x + fx * wx + px * W * 0.46 * s, pos.y + fy * wx + py * W * 0.46 * s);
+        parts.push({ layer: s === nearSign ? 4 : 0, depth: c.x + c.y, draw: () => drawIsoDisc(ctx, renderCtx, c, dir, wheelR, wheelR, '#14171b') });
+      }
+    }
+
+    // Boiler (cylinder) + smokebox cap is its front face.
+    const boilerC = along(L * 0.08);
+    parts.push({
+      layer: 1,
+      depth: boilerC.x + boilerC.y,
+      draw: () => drawIsoCylinder(ctx, renderCtx, boilerC, dir, L * 0.34, boilerR, boilerZ, body, { outline: true }),
+    });
+
+    // Cab (box) at the rear.
+    const cabC = along(-L * 0.36);
+    const cabH = W * 1.2;
+    parts.push({
+      layer: 1,
+      depth: cabC.x + cabC.y,
+      draw: () =>
+        drawIsoOrientedBox(ctx, renderCtx, cabC, dir, L * 0.14, W * 0.5, cabH, cabColor, {
+          selected: isSelected,
+          decorateFace: (face) => {
+            fillPoly(ctx, faceQuad(face, 0.22, 0.42, 0.78, 0.8), '#bfe3f2', 'rgba(0,0,0,0.3)');
+          },
+        }),
+    });
+
+    // Curved cab roof (half-cylinder).
+    parts.push({
+      layer: 2,
+      depth: cabC.x + cabC.y + 0.1,
+      draw: () => drawIsoCylinder(ctx, renderCtx, cabC, dir, L * 0.15, W * 0.5, cabH, '#3a3a3a', { arcStart: 0, arcEnd: Math.PI, caps: false }),
+    });
+
+    // Smokestack (vertical cylinder, on the boiler near the front).
+    const stack = along(L * 0.3);
+    parts.push({
+      layer: 3,
+      depth: stack.x + stack.y,
+      draw: () => drawIsoVCylinder(ctx, renderCtx, stack, W * 0.17, boilerTop - boilerR * 0.25, boilerTop + W * 0.55, '#262626', { outline: true }),
+    });
+
+    // Steam dome + sand dome (short vertical cylinders on the boiler).
+    for (const dx of [L * 0.12, -L * 0.04]) {
+      const d = along(dx);
+      parts.push({
+        layer: 3,
+        depth: d.x + d.y,
+        draw: () => drawIsoVCylinder(ctx, renderCtx, d, W * 0.16, boilerTop - boilerR * 0.4, boilerTop + W * 0.2, shade(body, 0.65), { outline: true }),
+      });
+    }
+
+    drawParts(parts);
+
+    // Overlays in screen space: steam from the stack, then headlamp.
     const z = renderCtx.getViewport().zoom;
-
-    // Steam puffs rising from the chimney top (screen space)
     if (Math.abs(train.velocity) > 1) {
-      const top = renderCtx.project(chimney, LOCO_HEIGHT + 9);
+      const top = renderCtx.project(stack, boilerTop + W * 0.55);
       const time = Date.now() / 200;
       for (let i = 0; i < 3; i++) {
         const offset = (time + i * 1.5) % 4;
         const alpha = Math.max(0, 1 - offset / 4);
-        ctx.fillStyle = `rgba(220,220,220,${alpha * 0.6})`;
+        ctx.fillStyle = `rgba(225,225,225,${alpha * 0.6})`;
         ctx.beginPath();
         ctx.arc(top.x + offset * 2 * z, top.y - offset * 6 * z, (2.5 + offset) * z, 0, Math.PI * 2);
         ctx.fill();
       }
     }
 
-    // Headlamp glow at the very front
-    const lamp = renderCtx.project(along(L / 2), LOCO_HEIGHT * 0.5);
+    const lamp = renderCtx.project(along(L * 0.42), boilerZ);
     ctx.fillStyle = '#FFF59D';
     ctx.beginPath();
     ctx.arc(lamp.x, lamp.y, 2.2 * z, 0, Math.PI * 2);

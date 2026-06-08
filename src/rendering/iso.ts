@@ -26,6 +26,25 @@ export function worldDepth(world: Vector2D): number {
   return world.x + world.y;
 }
 
+// 3D view + light vectors for curved-surface shading. VIEW points toward the
+// camera (so faces with normal·VIEW > 0 are visible); for horizontal normals
+// (z=0) this reduces to the same x+y>0 test used by flat prisms. LIGHT is a
+// fixed key light from the upper-front-left.
+const VIEW3 = norm3([1, 1, 1.25]);
+const LIGHT3 = norm3([-0.35, -0.55, 0.78]);
+
+function norm3(v: [number, number, number]): [number, number, number] {
+  const l = Math.hypot(v[0], v[1], v[2]) || 1;
+  return [v[0] / l, v[1] / l, v[2] / l];
+}
+function dot3(a: [number, number, number], b: [number, number, number]): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+/** Shade a base color by a 3D surface normal under the fixed key light. */
+function lit(color: string, n: [number, number, number]): string {
+  return shade(color, 0.42 + 0.58 * Math.max(0, dot3(n, LIGHT3)));
+}
+
 /**
  * Multiply a #rrggbb color by a brightness factor, returning a CSS rgb() string.
  */
@@ -70,6 +89,8 @@ export interface IsoPrismOptions {
   outline?: boolean;
   topColor?: string;
   selected?: boolean;
+  /** Lift the whole prism so its underside sits at this world height. */
+  baseHeight?: number;
   /** Called per visible side face so callers can paint windows, doors, etc. */
   decorateFace?: (face: IsoFace) => void;
   /** Called with the top face screen corners for roof details. */
@@ -112,9 +133,10 @@ export function drawIsoPrism(
 ): void {
   const outline = options.outline !== false;
   const strokeColor = options.selected ? '#FDE68A' : 'rgba(0,0,0,0.35)';
+  const baseHeight = options.baseHeight ?? 0;
 
-  const bottom = corners.map((w) => rc.worldToScreen(w));
-  const top = corners.map((w) => rc.project(w, height));
+  const bottom = corners.map((w) => rc.project(w, baseHeight));
+  const top = corners.map((w) => rc.project(w, baseHeight + height));
 
   // Footprint centroid (world) — used to orient face normals outward.
   let cxw = 0;
@@ -275,4 +297,150 @@ export function drawIsoOrientedBox(
 
   const corners = [corner(1, 1), corner(1, -1), corner(-1, -1), corner(-1, 1)];
   drawIsoPrism(ctx, rc, corners, height, baseColor, options);
+}
+
+export interface IsoCylinderOptions {
+  segments?: number;
+  /** Draw only an angular slice of the tube (e.g. 0..π for a half-pipe roof). */
+  arcStart?: number;
+  arcEnd?: number;
+  caps?: boolean;
+  outline?: boolean;
+}
+
+/**
+ * Draw a horizontal cylinder whose axis runs along `direction` at world height
+ * `axisHeight`. Rendered as a culled, shaded triangle-band mesh, so it reads as
+ * a rounded surface at any heading. Used for boilers and curved roofs.
+ */
+export function drawIsoCylinder(
+  ctx: CanvasRenderingContext2D,
+  rc: RenderingContext,
+  center: Vector2D,
+  direction: Vector2D,
+  halfLen: number,
+  radius: number,
+  axisHeight: number,
+  color: string,
+  options: IsoCylinderOptions = {}
+): void {
+  const segs = options.segments ?? 16;
+  const a0 = options.arcStart ?? 0;
+  const a1 = options.arcEnd ?? Math.PI * 2;
+  const drawCaps = options.caps ?? true;
+  const outline = options.outline ? 'rgba(0,0,0,0.2)' : undefined;
+
+  const len = Math.hypot(direction.x, direction.y) || 1;
+  const fx = direction.x / len;
+  const fy = direction.y / len;
+  const px = -fy;
+  const py = fx;
+  const fC = new Vector2D(center.x + fx * halfLen, center.y + fy * halfLen);
+  const rC = new Vector2D(center.x - fx * halfLen, center.y - fy * halfLen);
+  const step = (a1 - a0) / segs;
+
+  // A ring point at angle t around the axis, on the end cap at center C.
+  const ring = (C: Vector2D, t: number) =>
+    rc.project(
+      new Vector2D(C.x + px * Math.cos(t) * radius, C.y + py * Math.cos(t) * radius),
+      axisHeight + Math.sin(t) * radius
+    );
+
+  // Body: visible front-facing quads (convex surface → no self-overlap).
+  for (let k = 0; k < segs; k++) {
+    const t0 = a0 + k * step;
+    const t1 = t0 + step;
+    const tm = t0 + step / 2;
+    const n: [number, number, number] = [px * Math.cos(tm), py * Math.cos(tm), Math.sin(tm)];
+    if (dot3(n, VIEW3) <= 0) continue;
+    fillPoly(ctx, [ring(fC, t0), ring(fC, t1), ring(rC, t1), ring(rC, t0)], lit(color, n), outline);
+  }
+
+  // The single visible end cap (drawn on top of the body).
+  if (drawCaps) {
+    for (const e of [
+      { C: fC, n: [fx, fy, 0] as [number, number, number] },
+      { C: rC, n: [-fx, -fy, 0] as [number, number, number] },
+    ]) {
+      if (dot3(e.n, VIEW3) <= 0) continue;
+      const pts: Vector2D[] = [];
+      for (let k = 0; k <= segs; k++) pts.push(ring(e.C, a0 + k * step));
+      fillPoly(ctx, pts, lit(color, e.n), outline);
+    }
+  }
+}
+
+/**
+ * Draw a vertical cylinder (axis along world up) between baseZ and topZ. Used
+ * for smokestacks and domes so they sit on top of the boiler.
+ */
+export function drawIsoVCylinder(
+  ctx: CanvasRenderingContext2D,
+  rc: RenderingContext,
+  center: Vector2D,
+  radius: number,
+  baseZ: number,
+  topZ: number,
+  color: string,
+  options: { segments?: number; outline?: boolean } = {}
+): void {
+  const segs = options.segments ?? 16;
+  const outline = options.outline ? 'rgba(0,0,0,0.2)' : undefined;
+  const step = (Math.PI * 2) / segs;
+  const ring = (z: number, t: number) =>
+    rc.project(new Vector2D(center.x + Math.cos(t) * radius, center.y + Math.sin(t) * radius), z);
+
+  // Front-facing side quads.
+  for (let k = 0; k < segs; k++) {
+    const t0 = k * step;
+    const t1 = t0 + step;
+    const tm = t0 + step / 2;
+    const n: [number, number, number] = [Math.cos(tm), Math.sin(tm), 0];
+    if (dot3(n, VIEW3) <= 0) continue;
+    fillPoly(ctx, [ring(topZ, t0), ring(topZ, t1), ring(baseZ, t1), ring(baseZ, t0)], lit(color, n), outline);
+  }
+
+  // Top cap.
+  const top: Vector2D[] = [];
+  for (let k = 0; k <= segs; k++) top.push(ring(topZ, k * step));
+  fillPoly(ctx, top, lit(color, [0, 0, 1]), outline);
+}
+
+/**
+ * Draw a wheel: a disc standing in the vertical plane of `direction` (axle
+ * along the perpendicular), centered at world `center`, height z.
+ */
+export function drawIsoDisc(
+  ctx: CanvasRenderingContext2D,
+  rc: RenderingContext,
+  center: Vector2D,
+  direction: Vector2D,
+  radius: number,
+  z: number,
+  color: string
+): void {
+  const zoom = rc.getViewport().zoom;
+  const len = Math.hypot(direction.x, direction.y) || 1;
+  const du = new Vector2D(direction.x / len, direction.y / len);
+  const c0 = rc.project(center, z);
+  // Screen vector for one world unit along the wheel's in-plane (forward) axis.
+  const aDir = rc.worldToScreen(new Vector2D(center.x + du.x, center.y + du.y)).subtract(rc.worldToScreen(center));
+  const segs = 18;
+
+  const ellipse = (r: number): Vector2D[] => {
+    const pts: Vector2D[] = [];
+    for (let k = 0; k < segs; k++) {
+      const t = (k / segs) * Math.PI * 2;
+      pts.push(
+        new Vector2D(
+          c0.x + Math.cos(t) * aDir.x * r,
+          c0.y + Math.cos(t) * aDir.y * r - Math.sin(t) * r * zoom
+        )
+      );
+    }
+    return pts;
+  };
+
+  fillPoly(ctx, ellipse(radius), color, 'rgba(0,0,0,0.45)');
+  fillPoly(ctx, ellipse(radius * 0.4), shade(color, 2.0)); // hub
 }
