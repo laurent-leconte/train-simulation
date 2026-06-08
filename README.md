@@ -2,6 +2,11 @@
 
 Application web interactive pour créer et simuler des circuits de trains électriques.
 
+🚂 **Démo en ligne : https://train.lau.rent**
+
+Le circuit se construit sur une grille, en vue **de dessus** ou en vue
+**isométrique 2.5D**, puis se simule (trains, gares, aiguillages).
+
 ## Installation
 
 ```bash
@@ -18,62 +23,53 @@ L'application sera disponible sur `http://localhost:5173/`
 
 ## Utilisation
 
+L'application a deux **modes** (Édition / Simulation) et deux **vues**
+(Dessus / Isométrique), commutables depuis la barre d'outils. Le monde est une
+**grille de 50×50 px** ; chaque cellule peut contenir un rail, de l'eau ou du décor.
+
 ### Mode Édition
 
-#### Système de grille
+Outils de la barre d'outils :
 
-Le simulateur utilise une **grille de 50x50 pixels** pour placer les rails. Chaque rail occupe exactement **une cellule de grille**.
-
-#### Types de rails disponibles
-
-**Rails droits :**
-
-- **Horizontal (─)** : Rail est-ouest
-- **Vertical (│)** : Rail nord-sud
-
-**Rails courbes (quarts de cercle) :**
-
-- **NE (╰)** : Courbe de bas vers droite
-- **ES (╮)** : Courbe de haut vers droite
-- **SW (╯)** : Courbe de haut vers gauche
-- **WN (╭)** : Courbe de bas vers gauche
-
-#### Placer des rails
-
-1. Sélectionner le type de rail dans la barre d'outils
-2. Cliquer sur une cellule de la grille pour placer le rail
-3. Le rail est créé instantanément !
-4. Les rails se connectent automatiquement s'ils sont adjacents
-
-#### Supprimer des rails
-
-1. Cliquer sur le bouton "🗑️ Supprimer"
-2. Cliquer sur un rail pour le supprimer
-
-#### Commandes
-
-- **Clic gauche** : Placer ou supprimer un rail (selon l'outil actif)
-- **Cliquer + glisser** : Déplacer la vue (pan)
-- **Molette** : Zoom in/out
-- La cellule survolée est mise en surbrillance en bleu
+- **🛤️ Rail** — tracer des rails en **cliquant-glissant**. L'orientation (droit
+  ou courbe en quart de cercle) est déduite du trajet, et les rails adjacents se
+  connectent automatiquement. Une jonction en Y crée automatiquement un aiguillage.
+- **🏢 Gare** — poser une gare le long d'une voie droite (jusqu'à 3 cellules) :
+  quai, bâtiments et nom peint sur le mur.
+- **🚦 Signal** — placeholder (pas encore intégré à la simulation).
+- **💧 Eau** — peindre des cellules d'eau. On ne peut pas poser de rail sur l'eau
+  (les ponts viendront plus tard).
+- **🗑️ Supprimer** / **⚠️ Tout effacer**.
 
 ### Mode Simulation
 
-_(À venir dans les prochaines phases)_
+- Cliquer sur une voie pour **placer un train** (il démarre aussitôt).
+- Cliquer sur un aiguillage pour le **basculer**.
+- Le train **s'arrête en gare** quelques secondes puis repart.
+- Panneau du bas : Play / Pause, Stop, vitesse (0.5× / 1× / 2×).
 
-## Fonctionnalités actuelles (Phase 1 & 2)
+### Commandes
 
-✅ Canvas interactif avec pan/zoom
-✅ Grille de 50x50 pixels toujours active
-✅ **Système simplifié** : rails à 90° uniquement
-✅ **Rails droits** : horizontal et vertical
-✅ **Rails courbes** : 4 quarts de cercle (NE, ES, SW, WN)
-✅ **Placement simple** : un clic pour placer un rail
-✅ Highlight de la cellule survolée
-✅ Rendu réaliste des rails (2 lignes + traverses)
-✅ Connexion automatique des rails adjacents
-✅ Suppression de rails avec outil dédié
-✅ Gestion des nœuds et graphe du circuit
+- **Clic-glisser (outil Rail)** : tracer des rails
+- **Clic gauche** : action de l'outil actif / placer un train (en simulation)
+- **Clic droit ou molette enfoncée + glisser** : déplacer la vue (pan), dans tous les modes
+- **Molette** : zoom
+- **Espace** : démarrer / arrêter le train · **R** : inverser son sens
+- Bouton **Vue** : basculer entre vue de dessus et vue isométrique
+
+## Fonctionnalités actuelles
+
+✅ Vue **de dessus** et vue **isométrique 2:1** (bascule à tout moment)
+✅ Pan / zoom cohérents dans les deux vues
+✅ Tracé des rails au **cliquer-glisser** (droits + courbes), connexion automatique
+✅ **Aiguillages** créés automatiquement sur les jonctions en Y (basculables)
+✅ **Gares** multi-cellules : quai, bâtiments et **nom peint sur le mur**
+✅ Cellules d'**eau** (étangs) ; rail interdit sur l'eau
+✅ Décor procédural : arbres, buissons, fleurs, rochers
+✅ **Simulation** : locomotive + wagons, suivi de voie, arrêts en gare
+✅ Rendu détaillé en iso : locomotive à vapeur (chaudière, dômes, cheminée,
+   roues à rayons, chasse-pierre), wagons à fenêtres, gares, terrain
+✅ Déploiement sur Cloudflare (voir plus bas)
 
 ## Prochaines étapes
 
@@ -101,28 +97,30 @@ _(À venir dans les prochaines phases)_
 - **Framework** : React 18 + TypeScript
 - **Build** : Vite
 - **State** : Zustand avec Immer
-- **Rendering** : Canvas 2D HTML5
-- **Math** : Courbes de Bézier pour les rails courbes
-- **Structure** : Architecture en couches (models, rendering, services, components)
+- **Rendering** : Canvas 2D — vue de dessus + projection isométrique 2:1 (2.5D),
+  rendu procédural (pas de sprites)
+- **Math** : courbes de Bézier (rails) ; primitives iso (boîtes, cylindres,
+  disques) pour le rendu 2.5D
+- **Structure** : architecture en couches (geometry, rendering, services, state, components)
 
 ## Structure du projet
 
 ```
 src/
-├── components/        # Composants React
-│   ├── Canvas/       # Canvas principal
-│   └── Toolbar/      # Barre d'outils
-├── core/             # Logique métier
-│   ├── geometry/     # Utilitaires mathématiques
-│   ├── models/       # Modèles de données
-│   ├── physics/      # Moteur physique (à venir)
-│   └── graph/        # Représentation en graphe
-├── rendering/        # Système de rendu
-│   └── renderers/    # Renderers spécialisés
-├── services/         # Services métier
-├── state/            # Store Zustand
-├── types/            # Types TypeScript
-└── hooks/            # Custom hooks React
+├── components/
+│   ├── Canvas/              # Canvas principal (édition + simulation)
+│   ├── Toolbar/             # Barre d'outils
+│   └── SimulationControls/  # Contrôles de simulation
+├── core/
+│   └── geometry/            # Vector2D, courbes de Bézier
+├── rendering/
+│   ├── RenderingContext.ts  # Projection vue de dessus / isométrique
+│   ├── GridRenderer.ts      # Terrain, grille, décor, eau
+│   ├── iso.ts               # Primitives 2.5D (boîtes, cylindres, disques…)
+│   └── renderers/           # Rails, trains, gares, aiguillages
+├── services/                # Construction du circuit, physique, suivi de voie
+├── state/                   # Store Zustand
+└── types/                   # Types TypeScript
 ```
 
 ## Développement
