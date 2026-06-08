@@ -106,6 +106,19 @@ export class StationRenderer {
           draw: () => this.drawBuildingIso(ctx, renderCtx, geom, isSelected),
         });
       }
+
+      // Nameboard on the platform, centered on the station.
+      const midSeg = segs[Math.floor(segs.length / 2)];
+      if (midSeg) {
+        const dir = midSeg.geometry.end.subtract(midSeg.geometry.start).normalize();
+        const perp = new Vector2D(-dir.y, dir.x);
+        const cell = new Vector2D(midSeg.gridX * GRID_SIZE + GRID_SIZE / 2, midSeg.gridY * GRID_SIZE + GRID_SIZE / 2);
+        const anchor = cell.add(perp.multiply(sideMultiplier * (PLATFORM_OFFSET + PLATFORM_WIDTH / 2)));
+        drawables.push({
+          depth: worldDepth(anchor) + 0.3,
+          draw: () => this.drawNameboard(ctx, renderCtx, anchor, station.name),
+        });
+      }
     }
 
     return drawables;
@@ -208,6 +221,56 @@ export class StationRenderer {
       );
       drawIsoVCylinder(ctx, renderCtx, cc, geom.depth * 0.1, ridgeZ - 1, ridgeZ + 6, '#6E4A3A', { outline: true });
     }
+  }
+
+  /**
+   * Draw a station nameboard: two posts and a panel with the station name as
+   * upright, screen-facing text (kept legible rather than skewed into the iso
+   * plane). `anchor` is the world position on the platform.
+   */
+  private drawNameboard(
+    ctx: CanvasRenderingContext2D,
+    renderCtx: RenderingContext,
+    anchor: Vector2D,
+    name: string
+  ): void {
+    const z = renderCtx.getViewport().zoom;
+    const boardZ = 14; // height of the board above the platform
+    const ground = renderCtx.project(anchor, 0);
+    const center = renderCtx.project(anchor, boardZ);
+
+    const fontSize = Math.max(5, 6.5 * z);
+    ctx.save();
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    const textW = ctx.measureText(name).width;
+    const panelW = textW + 8 * z;
+    const panelH = fontSize + 6 * z;
+    const left = center.x - panelW / 2;
+    const top = center.y - panelH / 2;
+
+    // Posts from the ground up to the panel
+    ctx.strokeStyle = '#5a4632';
+    ctx.lineWidth = Math.max(1.2, z * 1.3);
+    for (const ox of [-panelW * 0.32, panelW * 0.32]) {
+      ctx.beginPath();
+      ctx.moveTo(ground.x + ox, ground.y);
+      ctx.lineTo(center.x + ox, top + panelH);
+      ctx.stroke();
+    }
+
+    // Panel
+    ctx.fillStyle = '#2E4A2E';
+    ctx.fillRect(left, top, panelW, panelH);
+    ctx.strokeStyle = '#CDD6CD';
+    ctx.lineWidth = Math.max(1, z * 0.8);
+    ctx.strokeRect(left, top, panelW, panelH);
+
+    // Name
+    ctx.fillStyle = '#F5F5E8';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(name, center.x, center.y + 0.5 * z);
+    ctx.restore();
   }
 
   /**

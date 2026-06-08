@@ -1,6 +1,6 @@
 import { Vector2D } from '@/core/geometry/Vector2D';
 import { RenderingContext } from './RenderingContext';
-import { IsoDrawable, worldDepth, shade } from './iso';
+import { IsoDrawable, worldDepth, shade, fillPoly } from './iso';
 
 /**
  * Renders background scenery and grid on the canvas
@@ -8,6 +8,7 @@ import { IsoDrawable, worldDepth, shade } from './iso';
 export class GridRenderer {
   private treePositions: Array<{ x: number; y: number; type: number }> = [];
   private bushPositions: Array<{ x: number; y: number; type: number }> = [];
+  private pondPositions: Array<{ x: number; y: number; rx: number; ry: number }> = [];
   private lastSeedUpdate = 0;
 
   /**
@@ -21,6 +22,7 @@ export class GridRenderer {
     this.lastSeedUpdate = seed;
     this.treePositions = [];
     this.bushPositions = [];
+    this.pondPositions = [];
 
     // Generate pseudo-random positions
     const random = (x: number, y: number) => {
@@ -51,8 +53,49 @@ export class GridRenderer {
             type: Math.floor(random(gx + 9000, gy + 9000) * 5),
           });
         }
+
+        // Rare ponds, spread out
+        if (random(gx + 2000, gy + 5000) < 0.0045) {
+          this.pondPositions.push({
+            x: gx * gridSize + gridSize / 2,
+            y: gy * gridSize + gridSize / 2,
+            rx: gridSize * (0.9 + 0.6 * random(gx, gy + 11)),
+            ry: gridSize * (0.7 + 0.4 * random(gx + 11, gy)),
+          });
+        }
       }
     }
+  }
+
+  /**
+   * Draw a pond as a flat water body (ground decal — projects via the affine
+   * transform, so it reads as a foreshortened pool in iso).
+   */
+  private drawPond(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number, ry: number): void {
+    ctx.save();
+    // Muddy rim
+    ctx.fillStyle = '#566B3E';
+    ctx.beginPath();
+    ctx.ellipse(x, y, rx * 1.08, ry * 1.08, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Water body (irregular: two overlapping ellipses)
+    ctx.fillStyle = '#3F72A8';
+    ctx.beginPath();
+    ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(x + rx * 0.28, y - ry * 0.18, rx * 0.7, ry * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Lighter shallows + highlight
+    ctx.fillStyle = '#5A8BC0';
+    ctx.beginPath();
+    ctx.ellipse(x - rx * 0.18, y - ry * 0.12, rx * 0.5, ry * 0.45, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(x - rx * 0.3, y - ry * 0.28, rx * 0.22, ry * 0.12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
   /**
@@ -144,10 +187,23 @@ export class GridRenderer {
 
     ctx.restore();
 
+    this.initializeTrees(12345, gridSize);
+
+    // Ponds — flat water on the ground (drawn under the world transform, so
+    // they project correctly in both views). Skip cells occupied by track.
+    ctx.save();
+    for (const p of this.pondPositions) {
+      if (p.x < startX - gridSize || p.x > endX + gridSize || p.y < startY - gridSize || p.y > endY + gridSize) continue;
+      const pgx = Math.floor(p.x / gridSize);
+      const pgy = Math.floor(p.y / gridSize);
+      if (occupiedCells?.has(`${pgx},${pgy}`)) continue;
+      this.drawPond(ctx, p.x, p.y, p.rx, p.ry);
+    }
+    ctx.restore();
+
     // Trees + bushes. In top-down they are flat ground decals drawn here; in
     // iso they have height and are drawn in the depth-sorted tall phase (see
     // collectIsoTrees / collectIsoBushes), so we skip them here.
-    this.initializeTrees(12345, gridSize);
 
     if (renderCtx.getViewMode() === 'topdown') {
       ctx.save();
@@ -347,18 +403,41 @@ export class GridRenderer {
     return v - Math.floor(v);
   }
 
+  /**
+   * Draw a faceted boulder centered at (cx, cy) with half-extents (w, h).
+   * Seeded by (sx, sy) so each rock has a stable irregular shape.
+   */
+  private drawRockShape(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    w: number,
+    h: number,
+    sx: number,
+    sy: number
+  ): void {
+    const n = 8;
+    const body: Vector2D[] = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const rr = 0.72 + 0.34 * this.hash(sx + i * 5.1, sy - i * 3.7);
+      body.push(new Vector2D(cx + Math.cos(a) * w * rr, cy + Math.sin(a) * h * rr));
+    }
+    fillPoly(ctx, body, '#6f747a', 'rgba(0,0,0,0.5)');
+    // Lit top-left facet: the body shrunk toward centre and shifted up-left.
+    const lit = body.map((p) => new Vector2D(cx + (p.x - cx) * 0.58 - w * 0.22, cy + (p.y - cy) * 0.58 - h * 0.3));
+    fillPoly(ctx, lit, '#9aa0a6');
+  }
+
   /** Draw ground detail (bush / flowers / rock) as a flat top-down decal. */
   private drawBush(ctx: CanvasRenderingContext2D, x: number, y: number, type: number): void {
     if (type === 4) {
-      // Rock
-      ctx.fillStyle = '#6b6f73';
+      // Faceted boulder with a soft ground shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.16)';
       ctx.beginPath();
-      ctx.ellipse(x, y, 6, 4, 0, 0, Math.PI * 2);
+      ctx.ellipse(x, y + 1, 6, 3, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#888d92';
-      ctx.beginPath();
-      ctx.ellipse(x - 1.5, y - 1.5, 3, 2.2, 0, 0, Math.PI * 2);
-      ctx.fill();
+      this.drawRockShape(ctx, x, y - 1, 6, 4, x, y);
       return;
     }
     if (type === 3) {
@@ -410,15 +489,8 @@ export class GridRenderer {
     ctx.fill();
 
     if (type === 4) {
-      // Rock — stacked grey ellipses
-      ctx.fillStyle = '#646A6F';
-      ctx.beginPath();
-      ctx.ellipse(base.x, base.y - 2.5 * z, 6 * z, 4 * z, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#8a9095';
-      ctx.beginPath();
-      ctx.ellipse(base.x - 1.5 * z, base.y - 4 * z, 3 * z, 2.2 * z, 0, 0, Math.PI * 2);
-      ctx.fill();
+      // Faceted boulder
+      this.drawRockShape(ctx, base.x, base.y - 2 * z, 6.5 * z, 5 * z, worldX, worldY);
       ctx.restore();
       return;
     }
