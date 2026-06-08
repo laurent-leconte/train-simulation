@@ -130,6 +130,18 @@ npm run dev      # Démarrer le serveur de développement
 npm run build    # Build de production
 npm run preview  # Preview du build
 npm run lint     # Linter
+npm run deploy   # Build + déploiement sur Cloudflare
+```
+
+### Déploiement
+
+L'application est déployée sur **Cloudflare Workers** (static assets) et servie
+sur https://train.lau.rent. La configuration est dans `wrangler.jsonc` (worker
+`train-simulation`, sert le dossier `./dist`).
+
+```bash
+npx wrangler login   # authentification (une fois, ouvre le navigateur)
+npm run deploy       # build puis `wrangler deploy`
 ```
 
 ### Technologies utilisées
