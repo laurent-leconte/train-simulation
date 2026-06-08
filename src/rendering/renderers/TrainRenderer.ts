@@ -8,7 +8,6 @@ import {
   drawIsoCylinder,
   drawIsoVCylinder,
   drawIsoDisc,
-  drawIsoCapsule,
   shade,
   faceQuad,
   fillPoly,
@@ -210,31 +209,47 @@ export class TrainRenderer {
       }
     };
 
-    // Boiler as a round capsule, with smokebox door + oval headlamp at the front.
-    const boilerC = along(L * 0.06);
-    const boilerHalf = L * 0.34;
+    // Boiler: a real cylinder (elliptical caps), abutting the cab front so it
+    // never overruns it. The smokebox door + headlamp only render when the
+    // front actually faces the camera.
+    const boilerC = along(L * 0.13);
+    const boilerHalf = L * 0.29;
+    const boilerFront = along(L * 0.42);
+    const frontFacesCamera = fx + fy > 0;
     parts.push({
       layer: 1,
       depth: boilerC.x + boilerC.y,
       draw: () => {
-        drawIsoCapsule(ctx, renderCtx, boilerC, dir, boilerHalf, boilerR, boilerZ, body);
-        const front = renderCtx.project(along(L * 0.06 + boilerHalf), boilerZ);
-        const rs = boilerR * renderCtx.getViewport().zoom;
-        // Smokebox door (dark) on the front cap
-        ctx.beginPath();
-        ctx.arc(front.x, front.y, rs * 0.85, 0, Math.PI * 2);
-        ctx.fillStyle = shade(body, 0.4);
-        ctx.fill();
-        // Headlamp — a small oval, foreshortened like the front face
-        ctx.fillStyle = '#FFF1A8';
-        ctx.beginPath();
-        ctx.ellipse(front.x, front.y + rs * 0.12, rs * 0.22, rs * 0.34, 0, 0, Math.PI * 2);
-        ctx.fill();
+        drawIsoCylinder(ctx, renderCtx, boilerC, dir, boilerHalf, boilerR, boilerZ, body, { outline: true });
+        if (!frontFacesCamera) return;
+        // Cap ellipse basis (screen) — matches the cylinder's foreshortened cap.
+        const z = renderCtx.getViewport().zoom;
+        const c = renderCtx.project(boilerFront, boilerZ);
+        const ax = renderCtx
+          .project(new Vector2D(boilerFront.x + px, boilerFront.y + py), boilerZ)
+          .subtract(c);
+        const upY = -z; // screen delta for one world unit up
+        const oval = (rad: number, ox: number, oy: number, fill: string) => {
+          ctx.beginPath();
+          for (let k = 0; k <= 22; k++) {
+            const t = (k / 22) * Math.PI * 2;
+            const ex = ox + ax.x * Math.cos(t) * rad;
+            const ey = oy + ax.y * Math.cos(t) * rad + upY * Math.sin(t) * rad;
+            if (k === 0) ctx.moveTo(ex, ey);
+            else ctx.lineTo(ex, ey);
+          }
+          ctx.closePath();
+          ctx.fillStyle = fill;
+          ctx.fill();
+        };
+        // Smokebox door (dark, inset) then a small headlamp, both oval.
+        oval(boilerR * 0.82, c.x, c.y, shade(body, 0.4));
+        oval(boilerR * 0.26, c.x, c.y + z * boilerR * 0.18, '#FFF1A8');
       },
     });
 
     // Three driving wheels, centered under the boiler.
-    for (const wx of [L * 0.06 - L * 0.16, L * 0.06, L * 0.06 + L * 0.16]) addWheels(wx, driveWheelR);
+    for (const wx of [L * 0.13 - L * 0.18, L * 0.13, L * 0.13 + L * 0.18]) addWheels(wx, driveWheelR);
 
     // Cab at the rear, raised on a footplate so a larger wheel shows beneath.
     const cabC = along(-L * 0.34);
