@@ -205,9 +205,17 @@ export class TrainRenderer {
     const addWheels = (wx: number, r: number) => {
       for (const s of [1, -1]) {
         const c = new Vector2D(pos.x + fx * wx + px * wheelOffset * s, pos.y + fy * wx + py * wheelOffset * s);
-        parts.push({ layer: s === nearSign ? 4 : 0, depth: c.x + c.y, draw: () => drawIsoDisc(ctx, renderCtx, c, dir, r, r, '#14171b') });
+        parts.push({ layer: s === nearSign ? 4 : 0, depth: c.x + c.y, draw: () => drawIsoDisc(ctx, renderCtx, c, dir, r, r, '#14171b', { spokes: 8 }) });
       }
     };
+
+    // Footplate / running board, tying the chassis together (sits below boiler,
+    // its sides poke out past the boiler).
+    parts.push({
+      layer: 0.5,
+      depth: pos.x + pos.y,
+      draw: () => drawIsoOrientedBox(ctx, renderCtx, along(-L * 0.03), dir, L * 0.45, W * 0.5, W * 0.08, '#23262b', { baseHeight: W * 0.18 }),
+    });
 
     // Boiler: a real cylinder (elliptical caps), abutting the cab front so it
     // never overruns it. The smokebox door + headlamp only render when the
@@ -248,6 +256,30 @@ export class TrainRenderer {
       },
     });
 
+    // Cowcatcher (pilot) — a slatted wedge at the front, only when front-facing.
+    if (frontFacesCamera) {
+      parts.push({
+        layer: 4,
+        depth: boilerFront.x + boilerFront.y + 1,
+        draw: () => {
+          const zoom = renderCtx.getViewport().zoom;
+          const back = along(L * 0.4);
+          const tip = renderCtx.project(along(L * 0.52), W * 0.02);
+          const topL = renderCtx.project(new Vector2D(back.x + px * W * 0.34, back.y + py * W * 0.34), W * 0.36);
+          const topR = renderCtx.project(new Vector2D(back.x - px * W * 0.34, back.y - py * W * 0.34), W * 0.36);
+          fillPoly(ctx, [tip, topL, topR], '#333', 'rgba(0,0,0,0.45)');
+          ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+          ctx.lineWidth = Math.max(1, zoom * 0.6);
+          for (const f of [0.25, 0.5, 0.75]) {
+            ctx.beginPath();
+            ctx.moveTo(topL.x + (topR.x - topL.x) * f, topL.y + (topR.y - topL.y) * f);
+            ctx.lineTo(tip.x, tip.y);
+            ctx.stroke();
+          }
+        },
+      });
+    }
+
     // Three driving wheels, centered under the boiler.
     for (const wx of [L * 0.13 - L * 0.18, L * 0.13, L * 0.13 + L * 0.18]) addWheels(wx, driveWheelR);
 
@@ -277,28 +309,55 @@ export class TrainRenderer {
       draw: () => drawIsoCylinder(ctx, renderCtx, cabC, dir, L * 0.15, W * 0.5, cabTop, '#3a3a3a', { arcStart: 0, arcEnd: Math.PI, caps: true }),
     });
 
-    // Smokestack (vertical cylinder, on the boiler near the front).
+    // Smokestack (vertical cylinder) + flared cap on the boiler near the front.
     const stack = along(L * 0.3);
+    const stackTop = boilerTop + W * 0.55;
     parts.push({
       layer: 3,
       depth: stack.x + stack.y,
-      draw: () => drawIsoVCylinder(ctx, renderCtx, stack, W * 0.17, boilerTop - boilerR * 0.25, boilerTop + W * 0.55, '#262626', { outline: true }),
+      draw: () => {
+        drawIsoVCylinder(ctx, renderCtx, stack, W * 0.16, boilerTop - boilerR * 0.25, stackTop, '#262626', { outline: true });
+        drawIsoVCylinder(ctx, renderCtx, stack, W * 0.22, stackTop - W * 0.06, stackTop + W * 0.03, '#1a1a1a', { outline: true });
+      },
     });
 
-    // Steam dome + sand dome (short vertical cylinders on the boiler).
+    // Brass steam dome + sand dome (short vertical cylinders on the boiler).
+    const brass = '#C2A24A';
     for (const dx of [L * 0.12, -L * 0.04]) {
       const d = along(dx);
       parts.push({
         layer: 3,
         depth: d.x + d.y,
-        draw: () => drawIsoVCylinder(ctx, renderCtx, d, W * 0.16, boilerTop - boilerR * 0.4, boilerTop + W * 0.2, shade(body, 0.65), { outline: true }),
+        draw: () => drawIsoVCylinder(ctx, renderCtx, d, W * 0.16, boilerTop - boilerR * 0.4, boilerTop + W * 0.22, brass, { outline: true }),
       });
     }
 
     drawParts(parts);
 
-    // Overlays in screen space: steam from the stack, then headlamp.
     const z = renderCtx.getViewport().zoom;
+
+    // Coupling rod linking the near-side driving wheels (drawn over them).
+    const rodPts = [L * 0.13 - L * 0.18, L * 0.13 + L * 0.18].map((wx) =>
+      renderCtx.project(
+        new Vector2D(pos.x + fx * wx + px * wheelOffset * nearSign, pos.y + fy * wx + py * wheelOffset * nearSign),
+        driveWheelR
+      )
+    );
+    ctx.strokeStyle = '#8a8f99';
+    ctx.lineWidth = Math.max(1.5, z * 1.6);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(rodPts[0].x, rodPts[0].y);
+    ctx.lineTo(rodPts[1].x, rodPts[1].y);
+    ctx.stroke();
+    ctx.fillStyle = '#aeb4bd';
+    for (const p of rodPts) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(1.2, z * 1.1), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Overlays in screen space: steam from the stack.
     if (Math.abs(train.velocity) > 1) {
       const top = renderCtx.project(stack, boilerTop + W * 0.55);
       const time = Date.now() / 200;

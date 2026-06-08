@@ -417,7 +417,8 @@ export function drawIsoDisc(
   direction: Vector2D,
   radius: number,
   z: number,
-  color: string
+  color: string,
+  options: { spokes?: number; rim?: boolean } = {}
 ): void {
   const zoom = rc.getViewport().zoom;
   const len = Math.hypot(direction.x, direction.y) || 1;
@@ -427,22 +428,40 @@ export function drawIsoDisc(
   const aDir = rc.worldToScreen(new Vector2D(center.x + du.x, center.y + du.y)).subtract(rc.worldToScreen(center));
   const segs = 18;
 
+  const point = (r: number, t: number) =>
+    new Vector2D(c0.x + Math.cos(t) * aDir.x * r, c0.y + Math.cos(t) * aDir.y * r - Math.sin(t) * r * zoom);
   const ellipse = (r: number): Vector2D[] => {
     const pts: Vector2D[] = [];
-    for (let k = 0; k < segs; k++) {
-      const t = (k / segs) * Math.PI * 2;
-      pts.push(
-        new Vector2D(
-          c0.x + Math.cos(t) * aDir.x * r,
-          c0.y + Math.cos(t) * aDir.y * r - Math.sin(t) * r * zoom
-        )
-      );
-    }
+    for (let k = 0; k < segs; k++) pts.push(point(r, (k / segs) * Math.PI * 2));
     return pts;
   };
 
+  // Tyre
   fillPoly(ctx, ellipse(radius), color, 'rgba(0,0,0,0.45)');
-  fillPoly(ctx, ellipse(radius * 0.4), shade(color, 2.0)); // hub
+  // Bright steel rim
+  if (options.rim !== false) {
+    const rim = ellipse(radius * 0.88);
+    ctx.beginPath();
+    rim.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.closePath();
+    ctx.strokeStyle = '#6b7079';
+    ctx.lineWidth = Math.max(1, zoom * 0.9);
+    ctx.stroke();
+  }
+  // Spokes
+  if (options.spokes) {
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.lineWidth = Math.max(1, zoom * 0.7);
+    for (let i = 0; i < options.spokes; i++) {
+      const p = point(radius * 0.82, (i / options.spokes) * Math.PI * 2);
+      ctx.beginPath();
+      ctx.moveTo(c0.x, c0.y);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    }
+  }
+  // Hub
+  fillPoly(ctx, ellipse(radius * 0.32), shade(color, 2.4));
 }
 
 /**
