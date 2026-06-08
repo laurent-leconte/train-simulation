@@ -40,14 +40,15 @@ export class GridRenderer {
             y: gy * gridSize + gridSize / 2,
             type: treeType,
           });
-        } else if (rand < 0.16) {
-          // ~13% chance of low greenery (bush / shrub / tuft), offset in-cell
+        } else if (rand < 0.18) {
+          // ~15% chance of ground detail, offset within the cell:
+          // types 0-2 bushes, 3 flowers, 4 rock.
           const ox = (random(gx + 7000, gy + 3000) - 0.5) * gridSize * 0.7;
           const oy = (random(gx + 3000, gy + 7000) - 0.5) * gridSize * 0.7;
           this.bushPositions.push({
             x: gx * gridSize + gridSize / 2 + ox,
             y: gy * gridSize + gridSize / 2 + oy,
-            type: Math.floor(random(gx + 9000, gy + 9000) * 3),
+            type: Math.floor(random(gx + 9000, gy + 9000) * 5),
           });
         }
       }
@@ -339,8 +340,44 @@ export class GridRenderer {
     return [[-2, 0, 5], [2, 0, 5]];
   }
 
-  /** Draw a low bush as a flat cluster (top-down ground decal, world space). */
+  private static readonly FLOWER_PALETTE = ['#E4572E', '#F2C14E', '#F0F0F0', '#B05CC6', '#E89ABE'];
+
+  private hash(x: number, y: number): number {
+    const v = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+    return v - Math.floor(v);
+  }
+
+  /** Draw ground detail (bush / flowers / rock) as a flat top-down decal. */
   private drawBush(ctx: CanvasRenderingContext2D, x: number, y: number, type: number): void {
+    if (type === 4) {
+      // Rock
+      ctx.fillStyle = '#6b6f73';
+      ctx.beginPath();
+      ctx.ellipse(x, y, 6, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#888d92';
+      ctx.beginPath();
+      ctx.ellipse(x - 1.5, y - 1.5, 3, 2.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    if (type === 3) {
+      // Flower tuft
+      ctx.fillStyle = '#3f6a3a';
+      for (const [dx, dy] of [[-3, 0], [3, 0], [0, -1]] as const) {
+        ctx.beginPath();
+        ctx.arc(x + dx, y + dy, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const dots = [[-3, -3], [3, -3], [0, -5], [-1, -1]] as const;
+      dots.forEach((d, i) => {
+        ctx.fillStyle = GridRenderer.FLOWER_PALETTE[Math.floor(this.hash(x + i * 13, y - i * 7) * 5)];
+        ctx.beginPath();
+        ctx.arc(x + d[0], y + d[1], 1.4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      return;
+    }
     const color = GridRenderer.BUSH_GREENS[type % 3];
     ctx.fillStyle = color;
     for (const [dx, dy, r] of this.bushBlobs(type)) {
@@ -354,7 +391,7 @@ export class GridRenderer {
     ctx.fill();
   }
 
-  /** Draw a low bush as a small billboard anchored at its projected base. */
+  /** Draw ground detail as a small billboard anchored at its projected base. */
   private drawBushIso(
     ctx: CanvasRenderingContext2D,
     renderCtx: RenderingContext,
@@ -364,7 +401,6 @@ export class GridRenderer {
   ): void {
     const z = renderCtx.getViewport().zoom;
     const base = renderCtx.worldToScreen(new Vector2D(worldX, worldY));
-    const color = GridRenderer.BUSH_GREENS[type % 3];
 
     ctx.save();
     // Soft shadow
@@ -372,7 +408,41 @@ export class GridRenderer {
     ctx.beginPath();
     ctx.ellipse(base.x, base.y, 6 * z, 3 * z, 0, 0, Math.PI * 2);
     ctx.fill();
-    // Foliage, lifted slightly off the ground
+
+    if (type === 4) {
+      // Rock — stacked grey ellipses
+      ctx.fillStyle = '#646A6F';
+      ctx.beginPath();
+      ctx.ellipse(base.x, base.y - 2.5 * z, 6 * z, 4 * z, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#8a9095';
+      ctx.beginPath();
+      ctx.ellipse(base.x - 1.5 * z, base.y - 4 * z, 3 * z, 2.2 * z, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
+    if (type === 3) {
+      // Flowers — small green tuft + colored dots
+      ctx.fillStyle = '#3f6a3a';
+      for (const [dx, dy] of [[-3, 0], [3, 0], [0, -1]] as const) {
+        ctx.beginPath();
+        ctx.arc(base.x + dx * z, base.y - 2 * z + dy * z, 2.5 * z, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const dots = [[-3, -4], [3, -4], [0, -6], [-1, -2]] as const;
+      dots.forEach((d, i) => {
+        ctx.fillStyle = GridRenderer.FLOWER_PALETTE[Math.floor(this.hash(worldX + i * 13, worldY - i * 7) * 5)];
+        ctx.beginPath();
+        ctx.arc(base.x + d[0] * z, base.y - 2 * z + d[1] * z, 1.5 * z, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.restore();
+      return;
+    }
+
+    // Bushes (0-2)
+    const color = GridRenderer.BUSH_GREENS[type % 3];
     ctx.fillStyle = color;
     for (const [dx, dy, r] of this.bushBlobs(type)) {
       ctx.beginPath();

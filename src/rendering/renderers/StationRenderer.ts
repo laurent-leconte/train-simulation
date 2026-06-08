@@ -1,7 +1,7 @@
 import { Vector2D } from '@/core/geometry/Vector2D';
 import { Station, TrackSegment } from '@/types/circuit.types';
 import { RenderingContext } from '../RenderingContext';
-import { IsoDrawable, worldDepth, drawIsoOrientedBox, drawIsoGableRoof, faceQuad, fillPoly } from '../iso';
+import { IsoDrawable, worldDepth, drawIsoOrientedBox, drawIsoGableRoof, drawIsoVCylinder, faceQuad, fillPoly } from '../iso';
 
 // Height of station buildings in world units (for iso extrusion)
 const BUILDING_HEIGHT = 18;
@@ -168,31 +168,46 @@ export class StationRenderer {
           const [bi, bj] = face.corners;
           const edgeLen = Math.hypot(bj.x - bi.x, bj.y - bi.y);
           const n = Math.max(1, Math.round(edgeLen / (16 * z)));
-          // Window row
+          // Window row, each in a recessed frame
           for (let k = 0; k < n; k++) {
             const c = (k + 0.5) / n;
+            fillPoly(ctx, faceQuad(face, c - 0.075, 0.4, c + 0.075, 0.74), '#6b5a3c'); // frame
             fillPoly(ctx, faceQuad(face, c - 0.06, 0.42, c + 0.06, 0.72), WINDOW_COLOR, 'rgba(0,0,0,0.3)');
+            // mullion
+            fillPoly(ctx, faceQuad(face, c - 0.005, 0.42, c + 0.005, 0.72), '#6b5a3c');
           }
-          // Door, centered, on the long visible wall of the main building
+          // Door (framed), centered, on the long visible wall of the main building
           if (geom.isMiddle && n >= 3) {
+            fillPoly(ctx, faceQuad(face, 0.43, 0.0, 0.57, 0.54), '#3a2614');
             fillPoly(ctx, faceQuad(face, 0.45, 0.0, 0.55, 0.5), DOOR_COLOR, 'rgba(0,0,0,0.4)');
           }
         },
       }
     );
 
-    // Pitched roof on top
+    // Pitched roof on top, with a slight eave overhang
     drawIsoGableRoof(
       ctx,
       renderCtx,
       geom.center,
       geom.direction,
-      geom.length / 2,
-      geom.depth / 2,
+      (geom.length / 2) * 1.06,
+      (geom.depth / 2) * 1.12,
       wallHeight,
       roofHeight,
       ROOF_COLOR
     );
+
+    // Chimneys rising from the ridge (two on the main building, one otherwise)
+    const ridgeZ = wallHeight + roofHeight;
+    const chimneyXs = geom.isMiddle ? [geom.length * 0.26, -geom.length * 0.26] : [geom.length * 0.18];
+    for (const cxoff of chimneyXs) {
+      const cc = new Vector2D(
+        geom.center.x + geom.direction.x * cxoff,
+        geom.center.y + geom.direction.y * cxoff
+      );
+      drawIsoVCylinder(ctx, renderCtx, cc, geom.depth * 0.1, ridgeZ - 1, ridgeZ + 6, '#6E4A3A', { outline: true });
+    }
   }
 
   /**
