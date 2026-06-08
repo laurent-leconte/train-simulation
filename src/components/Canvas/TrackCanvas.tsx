@@ -513,6 +513,14 @@ export function TrackCanvas() {
   // Mouse down handler (start dragging for track tool, or panning)
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      // Right or middle mouse button: pan the camera in any mode or tool.
+      if (e.button === 1 || e.button === 2) {
+        setIsPanning(true);
+        setLastMousePos(new Vector2D(e.clientX, e.clientY));
+        e.preventDefault();
+        return;
+      }
+
       // Handle station tool - place station on track (uses preview state)
       if (mode === 'edit' && selectedTool.type === 'station' && e.button === 0) {
         // Use the current preview if valid (3 segments minimum for a proper station)
@@ -691,14 +699,14 @@ export function TrackCanvas() {
             addTrain(newTrain);
             setSimulationRunning(true);
           }
+          return;
         }
 
-        return;
+        // Nothing to toggle or place here — fall through to camera panning.
       }
 
-      // Otherwise, handle panning
-      if (e.button === 0 || e.button === 1) {
-        // Left or middle button
+      // Left-button drag pans (right/middle handled at the top).
+      if (e.button === 0) {
         setIsPanning(true);
         setLastMousePos(new Vector2D(e.clientX, e.clientY));
         e.preventDefault();
