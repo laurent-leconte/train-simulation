@@ -937,10 +937,14 @@ export function TrackCanvas() {
       const currentPos = new Vector2D(e.clientX, e.clientY);
 
       if (isPanning) {
-        const delta = currentPos.subtract(lastMousePos);
-        // Adjust for zoom level
-        const adjustedDelta = delta.divide(viewport.zoom);
-        adjustViewportPan(adjustedDelta);
+        // Convert the screen-space drag into a world-space delta through the
+        // inverse projection, so the content follows the cursor in any view
+        // (in top-down this reduces to delta / zoom). screenToWorld is affine,
+        // so the constant offsets cancel in the difference.
+        const worldDelta = renderCtx
+          .screenToWorld(currentPos)
+          .subtract(renderCtx.screenToWorld(lastMousePos));
+        adjustViewportPan(worldDelta);
         setLastMousePos(currentPos);
       }
     },
