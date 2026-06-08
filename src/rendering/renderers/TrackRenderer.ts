@@ -74,7 +74,7 @@ export class TrackRenderer {
     ctx.save();
 
     // Draw gravel bed (ballast) first
-    ctx.strokeStyle = '#808080';
+    ctx.strokeStyle = '#8d8478';
     ctx.lineWidth = this.RAIL_GAUGE + 6;
     ctx.lineCap = 'butt';
     ctx.beginPath();
@@ -86,7 +86,7 @@ export class TrackRenderer {
     this.drawTiesStraight(start, end, direction, perpendicular, ctx);
 
     // Draw rails with realistic steel color
-    const railColor = isSelected ? '#FFD700' : '#696969'; // Gold if selected, dark gray otherwise
+    const railColor = isSelected ? '#FFD700' : '#7d7d7d'; // Gold if selected, dark gray otherwise
     ctx.strokeStyle = railColor;
     ctx.lineWidth = this.RAIL_WIDTH + 1;
     ctx.lineCap = 'round';
@@ -180,7 +180,7 @@ export class TrackRenderer {
     ctx.save();
 
     // Draw gravel bed (ballast) first
-    ctx.strokeStyle = '#808080';
+    ctx.strokeStyle = '#8d8478';
     ctx.lineWidth = this.RAIL_GAUGE + 6;
     ctx.lineCap = 'round';
     ctx.beginPath();
@@ -201,7 +201,7 @@ export class TrackRenderer {
     }
 
     // Draw rails as offset curves with realistic steel color
-    const railColor = isSelected ? '#FFD700' : '#696969';
+    const railColor = isSelected ? '#FFD700' : '#7d7d7d';
     const samples = 50;
     const halfGauge = this.RAIL_GAUGE / 2;
 

@@ -200,8 +200,15 @@ export function TrackCanvas() {
     renderCtx.save();
     renderCtx.applyTransform();
 
+    // Grid cells occupied by track — used to hide trees that would otherwise
+    // poke through the rails.
+    const occupiedCells = new Set<string>();
+    for (const seg of circuitGraph.edges.values()) {
+      occupiedCells.add(`${seg.gridX},${seg.gridY}`);
+    }
+
     // Render grid
-    gridRendererRef.current.render(renderCtx, gridSize, showGrid);
+    gridRendererRef.current.render(renderCtx, gridSize, showGrid, occupiedCells);
 
     // Render track segments
     trackRendererRef.current.renderAll(circuitGraph.edges, renderCtx, selectedElement);
@@ -325,7 +332,7 @@ export function TrackCanvas() {
     // back-to-front so trains correctly pass behind buildings and trees.
     if (viewMode === 'iso') {
       const drawables: IsoDrawable[] = [
-        ...gridRendererRef.current.collectIsoTrees(renderCtx, gridSize),
+        ...gridRendererRef.current.collectIsoTrees(renderCtx, gridSize, occupiedCells),
         ...stationRendererRef.current.collectIsoDrawables(
           circuitGraph.stations,
           circuitGraph.edges,

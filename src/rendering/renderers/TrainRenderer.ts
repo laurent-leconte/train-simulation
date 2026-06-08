@@ -1,11 +1,12 @@
 import { Vector2D } from '@/core/geometry/Vector2D';
 import { Train, CarriagePosition } from '@/types/train.types';
 import { RenderingContext } from '../RenderingContext';
-import { IsoDrawable, worldDepth, drawIsoOrientedBox, shade } from '../iso';
+import { IsoDrawable, worldDepth, drawIsoOrientedBox, shade, faceQuad, fillPoly } from '../iso';
 
 // Heights in world units for iso extrusion
-const LOCO_HEIGHT = 14;
-const CARRIAGE_HEIGHT = 11;
+const LOCO_HEIGHT = 13;
+const CAB_HEIGHT = 18;
+const CARRIAGE_HEIGHT = 12;
 
 /**
  * Renders trains on the canvas
@@ -51,19 +52,10 @@ export class TrainRenderer {
 
       // Carriages
       (train.carriagePositions ?? []).forEach((cp, i) => {
+        const color = carriageColors[i % carriageColors.length];
         drawables.push({
           depth: worldDepth(cp.worldPosition),
-          draw: () =>
-            drawIsoOrientedBox(
-              ctx,
-              renderCtx,
-              cp.worldPosition,
-              cp.direction,
-              train.carriageLength / 2,
-              train.width / 2,
-              CARRIAGE_HEIGHT,
-              carriageColors[i % carriageColors.length]
-            ),
+          draw: () => this.drawCarriageIso(ctx, renderCtx, cp, train.carriageLength, train.width, color),
         });
       });
 
@@ -79,7 +71,50 @@ export class TrainRenderer {
   }
 
   /**
-   * Draw the locomotive as an iso box with a cab, chimney and steam.
+   * Draw a passenger carriage as an extruded box with an underframe, a window
+   * band, a waist stripe and a slightly lighter roof.
+   */
+  private drawCarriageIso(
+    ctx: CanvasRenderingContext2D,
+    renderCtx: RenderingContext,
+    cp: CarriagePosition,
+    length: number,
+    width: number,
+    color: string
+  ): void {
+    drawIsoOrientedBox(
+      ctx,
+      renderCtx,
+      cp.worldPosition,
+      cp.direction,
+      length / 2,
+      width / 2,
+      CARRIAGE_HEIGHT,
+      color,
+      {
+        topColor: shade(color, 1.18),
+        decorateFace: (face) => {
+          // Underframe / skirt
+          fillPoly(ctx, faceQuad(face, 0.0, 0.0, 1.0, 0.16), 'rgba(15,15,15,0.85)');
+          // Window band
+          const n = 4;
+          const span = 0.78;
+          const slot = span / n;
+          for (let k = 0; k < n; k++) {
+            const u0 = 0.11 + k * slot + slot * 0.18;
+            const u1 = 0.11 + k * slot + slot * 0.82;
+            fillPoly(ctx, faceQuad(face, u0, 0.44, u1, 0.74), '#bfe3f2', 'rgba(0,0,0,0.3)');
+          }
+          // Waist stripe just below the windows
+          fillPoly(ctx, faceQuad(face, 0.0, 0.34, 1.0, 0.4), shade(color, 0.6));
+        },
+      }
+    );
+  }
+
+  /**
+   * Draw the locomotive as a small steam engine: boiler + cab (depth-sorted
+   * bodies), then chimney + dome on top, then headlamp and steam.
    */
   private drawLocomotiveIso(
     ctx: CanvasRenderingContext2D,
@@ -87,68 +122,77 @@ export class TrainRenderer {
     train: Train,
     isSelected: boolean
   ): void {
-    const { worldPosition, direction } = train.position;
+    const { worldPosition: pos, direction: dir } = train.position;
+    const L = train.length;
+    const W = train.width;
+    const body = train.color || '#8B0000';
+    const cabColor = shade(body, 0.55);
 
-    // Main body
-    drawIsoOrientedBox(
-      ctx,
-      renderCtx,
-      worldPosition,
-      direction,
-      train.length / 2,
-      train.width / 2,
-      LOCO_HEIGHT,
-      train.color || '#8B0000',
-      { selected: isSelected }
-    );
+    const along = (d: number) => new Vector2D(pos.x + dir.x * d, pos.y + dir.y * d);
 
-    // Chimney: a small box near the front, sitting on top of the body
-    const front = new Vector2D(
-      worldPosition.x + direction.x * (train.length * 0.32),
-      worldPosition.y + direction.y * (train.length * 0.32)
-    );
-    drawIsoOrientedBox(
-      ctx,
-      renderCtx,
-      front,
-      direction,
-      train.width * 0.18,
-      train.width * 0.18,
-      LOCO_HEIGHT + 7,
-      '#2F4F4F'
-    );
+    // Two main bodies, drawn far-to-near so the cab occludes correctly.
+    const boilerCenter = along(L * 0.1);
+    const cabCenter = along(-L * 0.3);
+    const bodies = [
+      {
+        depth: worldDepth(boilerCenter),
+        draw: () =>
+          drawIsoOrientedBox(ctx, renderCtx, boilerCenter, dir, L * 0.4, W * 0.42, LOCO_HEIGHT, body, {
+            selected: isSelected,
+            topColor: shade(body, 1.15),
+            decorateFace: (face) => {
+              // Boiler bands
+              for (const u of [0.25, 0.5, 0.75]) {
+                fillPoly(ctx, faceQuad(face, u - 0.02, 0.05, u + 0.02, 0.95), shade('#FFD700', 0.9));
+              }
+            },
+          }),
+      },
+      {
+        depth: worldDepth(cabCenter),
+        draw: () =>
+          drawIsoOrientedBox(ctx, renderCtx, cabCenter, dir, L * 0.2, W / 2, CAB_HEIGHT, cabColor, {
+            selected: isSelected,
+            topColor: shade(cabColor, 1.2),
+            decorateFace: (face) => {
+              // Cab window
+              fillPoly(ctx, faceQuad(face, 0.25, 0.45, 0.75, 0.8), '#bfe3f2', 'rgba(0,0,0,0.3)');
+            },
+          }),
+      },
+    ];
+    bodies.sort((a, b) => a.depth - b.depth).forEach((p) => p.draw());
+
+    // Chimney + steam dome sit on top of the boiler.
+    const chimney = along(L * 0.32);
+    const dome = along(L * 0.05);
+    const fittings = [
+      { depth: worldDepth(dome), draw: () => drawIsoOrientedBox(ctx, renderCtx, dome, dir, W * 0.16, W * 0.22, LOCO_HEIGHT + 4, '#3a3a3a') },
+      { depth: worldDepth(chimney), draw: () => drawIsoOrientedBox(ctx, renderCtx, chimney, dir, W * 0.16, W * 0.16, LOCO_HEIGHT + 9, '#2b2b2b', { topColor: '#444' }) },
+    ];
+    fittings.sort((a, b) => a.depth - b.depth).forEach((p) => p.draw());
+
+    const z = renderCtx.getViewport().zoom;
 
     // Steam puffs rising from the chimney top (screen space)
     if (Math.abs(train.velocity) > 1) {
-      const z = renderCtx.getViewport().zoom;
-      const top = renderCtx.project(front, LOCO_HEIGHT + 7);
+      const top = renderCtx.project(chimney, LOCO_HEIGHT + 9);
       const time = Date.now() / 200;
       for (let i = 0; i < 3; i++) {
         const offset = (time + i * 1.5) % 4;
         const alpha = Math.max(0, 1 - offset / 4);
-        ctx.fillStyle = `rgba(210,210,210,${alpha * 0.6})`;
+        ctx.fillStyle = `rgba(220,220,220,${alpha * 0.6})`;
         ctx.beginPath();
-        ctx.arc(
-          top.x + offset * 2 * z,
-          top.y - offset * 6 * z,
-          (3 + offset) * z,
-          0,
-          Math.PI * 2
-        );
+        ctx.arc(top.x + offset * 2 * z, top.y - offset * 6 * z, (2.5 + offset) * z, 0, Math.PI * 2);
         ctx.fill();
       }
     }
 
     // Headlamp glow at the very front
-    const z = renderCtx.getViewport().zoom;
-    const lampWorld = new Vector2D(
-      worldPosition.x + direction.x * (train.length / 2),
-      worldPosition.y + direction.y * (train.length / 2)
-    );
-    const lamp = renderCtx.project(lampWorld, LOCO_HEIGHT * 0.5);
-    ctx.fillStyle = shade('#FFFF66', 1);
+    const lamp = renderCtx.project(along(L / 2), LOCO_HEIGHT * 0.5);
+    ctx.fillStyle = '#FFF59D';
     ctx.beginPath();
-    ctx.arc(lamp.x, lamp.y, 2 * z, 0, Math.PI * 2);
+    ctx.arc(lamp.x, lamp.y, 2.2 * z, 0, Math.PI * 2);
     ctx.fill();
   }
 

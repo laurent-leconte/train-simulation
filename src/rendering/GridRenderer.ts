@@ -105,7 +105,12 @@ export class GridRenderer {
     ctx.restore();
   }
 
-  render(renderCtx: RenderingContext, gridSize: number, showGrid: boolean): void {
+  render(
+    renderCtx: RenderingContext,
+    gridSize: number,
+    showGrid: boolean,
+    occupiedCells?: Set<string>
+  ): void {
     const ctx = renderCtx.getContext();
     const bounds = renderCtx.getVisibleBounds();
 
@@ -149,10 +154,11 @@ export class GridRenderer {
 
     if (renderCtx.getViewMode() === 'topdown') {
       ctx.save();
-      // Draw trees that are in view
+      // Draw trees that are in view (skip cells occupied by track)
       for (const tree of this.treePositions) {
         if (tree.x >= startX - 20 && tree.x <= endX + 20 &&
-            tree.y >= startY - 20 && tree.y <= endY + 20) {
+            tree.y >= startY - 20 && tree.y <= endY + 20 &&
+            !this.treeIsOccluded(tree, gridSize, occupiedCells)) {
           this.drawTree(ctx, tree.x, tree.y, tree.type);
         }
       }
@@ -190,7 +196,11 @@ export class GridRenderer {
   /**
    * Collect in-view trees as depth-tagged billboards for the iso tall phase.
    */
-  collectIsoTrees(renderCtx: RenderingContext, gridSize: number): IsoDrawable[] {
+  collectIsoTrees(
+    renderCtx: RenderingContext,
+    gridSize: number,
+    occupiedCells?: Set<string>
+  ): IsoDrawable[] {
     const ctx = renderCtx.getContext();
     const bounds = renderCtx.getVisibleBounds();
     this.initializeTrees(12345, gridSize);
@@ -199,7 +209,8 @@ export class GridRenderer {
     for (const tree of this.treePositions) {
       if (
         tree.x >= bounds.min.x - 20 && tree.x <= bounds.max.x + 20 &&
-        tree.y >= bounds.min.y - 20 && tree.y <= bounds.max.y + 20
+        tree.y >= bounds.min.y - 20 && tree.y <= bounds.max.y + 20 &&
+        !this.treeIsOccluded(tree, gridSize, occupiedCells)
       ) {
         const t = tree; // capture
         drawables.push({
@@ -209,6 +220,21 @@ export class GridRenderer {
       }
     }
     return drawables;
+  }
+
+  /**
+   * A tree is hidden when its grid cell is occupied by a track segment, so it
+   * doesn't poke through the rails.
+   */
+  private treeIsOccluded(
+    tree: { x: number; y: number },
+    gridSize: number,
+    occupiedCells?: Set<string>
+  ): boolean {
+    if (!occupiedCells || occupiedCells.size === 0) return false;
+    const gx = Math.floor(tree.x / gridSize);
+    const gy = Math.floor(tree.y / gridSize);
+    return occupiedCells.has(`${gx},${gy}`);
   }
 
   /**

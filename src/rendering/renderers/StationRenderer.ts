@@ -1,11 +1,18 @@
 import { Vector2D } from '@/core/geometry/Vector2D';
 import { Station, TrackSegment } from '@/types/circuit.types';
 import { RenderingContext } from '../RenderingContext';
-import { IsoDrawable, worldDepth, drawIsoOrientedBox } from '../iso';
+import { IsoDrawable, worldDepth, drawIsoOrientedBox, drawIsoGableRoof, faceQuad, fillPoly } from '../iso';
 
 // Height of station buildings in world units (for iso extrusion)
-const BUILDING_HEIGHT = 20;
-const BUILDING_HEIGHT_MAIN = 28;
+const BUILDING_HEIGHT = 18;
+const BUILDING_HEIGHT_MAIN = 24;
+const ROOF_HEIGHT = 8;
+const ROOF_HEIGHT_MAIN = 12;
+const WALL_COLOR = '#D9C7A3'; // warm sandstone
+const WALL_COLOR_SEL = '#F0E2C0';
+const ROOF_COLOR = '#9C3B2E'; // brick red
+const WINDOW_COLOR = '#9AD1E8';
+const DOOR_COLOR = '#5A3B22';
 
 const GRID_SIZE = 50;
 const PLATFORM_WIDTH = 12; // Width of platform (perpendicular to track)
@@ -96,18 +103,7 @@ export class StationRenderer {
         const geom = this.buildingGeometry(segment, sideMultiplier, i, segs.length);
         drawables.push({
           depth: worldDepth(geom.center),
-          draw: () =>
-            drawIsoOrientedBox(
-              ctx,
-              renderCtx,
-              geom.center,
-              geom.direction,
-              geom.length / 2,
-              geom.depth / 2,
-              geom.isMiddle ? BUILDING_HEIGHT_MAIN : BUILDING_HEIGHT,
-              isSelected ? '#9CA3AF' : '#6B7280',
-              { selected: isSelected }
-            ),
+          draw: () => this.drawBuildingIso(ctx, renderCtx, geom, isSelected),
         });
       }
     }
@@ -141,6 +137,62 @@ export class StationRenderer {
     );
 
     return { center, direction, length, depth, isMiddle };
+  }
+
+  /**
+   * Draw a station building in iso: walls with windows (and a door on the main
+   * building), topped with a pitched gable roof.
+   */
+  private drawBuildingIso(
+    ctx: CanvasRenderingContext2D,
+    renderCtx: RenderingContext,
+    geom: { center: Vector2D; direction: Vector2D; length: number; depth: number; isMiddle: boolean },
+    isSelected: boolean
+  ): void {
+    const wallHeight = geom.isMiddle ? BUILDING_HEIGHT_MAIN : BUILDING_HEIGHT;
+    const roofHeight = geom.isMiddle ? ROOF_HEIGHT_MAIN : ROOF_HEIGHT;
+    const z = renderCtx.getViewport().zoom;
+
+    drawIsoOrientedBox(
+      ctx,
+      renderCtx,
+      geom.center,
+      geom.direction,
+      geom.length / 2,
+      geom.depth / 2,
+      wallHeight,
+      isSelected ? WALL_COLOR_SEL : WALL_COLOR,
+      {
+        selected: isSelected,
+        decorateFace: (face) => {
+          const [bi, bj] = face.corners;
+          const edgeLen = Math.hypot(bj.x - bi.x, bj.y - bi.y);
+          const n = Math.max(1, Math.round(edgeLen / (16 * z)));
+          // Window row
+          for (let k = 0; k < n; k++) {
+            const c = (k + 0.5) / n;
+            fillPoly(ctx, faceQuad(face, c - 0.06, 0.42, c + 0.06, 0.72), WINDOW_COLOR, 'rgba(0,0,0,0.3)');
+          }
+          // Door, centered, on the long visible wall of the main building
+          if (geom.isMiddle && n >= 3) {
+            fillPoly(ctx, faceQuad(face, 0.45, 0.0, 0.55, 0.5), DOOR_COLOR, 'rgba(0,0,0,0.4)');
+          }
+        },
+      }
+    );
+
+    // Pitched roof on top
+    drawIsoGableRoof(
+      ctx,
+      renderCtx,
+      geom.center,
+      geom.direction,
+      geom.length / 2,
+      geom.depth / 2,
+      wallHeight,
+      roofHeight,
+      ROOF_COLOR
+    );
   }
 
   /**
