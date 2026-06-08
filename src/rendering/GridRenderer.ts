@@ -8,7 +8,6 @@ import { IsoDrawable, worldDepth, shade, fillPoly } from './iso';
 export class GridRenderer {
   private treePositions: Array<{ x: number; y: number; type: number }> = [];
   private bushPositions: Array<{ x: number; y: number; type: number }> = [];
-  private pondPositions: Array<{ x: number; y: number; rx: number; ry: number }> = [];
   private lastSeedUpdate = 0;
 
   /**
@@ -22,7 +21,6 @@ export class GridRenderer {
     this.lastSeedUpdate = seed;
     this.treePositions = [];
     this.bushPositions = [];
-    this.pondPositions = [];
 
     // Generate pseudo-random positions
     const random = (x: number, y: number) => {
@@ -53,47 +51,39 @@ export class GridRenderer {
             type: Math.floor(random(gx + 9000, gy + 9000) * 5),
           });
         }
-
-        // Rare ponds, spread out
-        if (random(gx + 2000, gy + 5000) < 0.0045) {
-          this.pondPositions.push({
-            x: gx * gridSize + gridSize / 2,
-            y: gy * gridSize + gridSize / 2,
-            rx: gridSize * (0.9 + 0.6 * random(gx, gy + 11)),
-            ry: gridSize * (0.7 + 0.4 * random(gx + 11, gy)),
-          });
-        }
       }
     }
   }
 
   /**
-   * Draw a pond as a flat water body (ground decal — projects via the affine
-   * transform, so it reads as a foreshortened pool in iso).
+   * Draw a water terrain cell: a sandy/muddy bank filling the cell that
+   * transitions to the grass, with a water pool in the middle. Drawn in world
+   * coordinates so it projects with the rest of the ground. Rounded so a lone
+   * cell reads as a pond; adjacent cells' banks meet for larger pools later.
    */
-  private drawPond(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number, ry: number): void {
+  private drawWaterCell(ctx: CanvasRenderingContext2D, gx: number, gy: number, gridSize: number): void {
+    const x = gx * gridSize;
+    const y = gy * gridSize;
+    const gs = gridSize;
+    const rr = (ix: number, iy: number, w: number, h: number, rad: number, color: string) => {
+      ctx.beginPath();
+      ctx.roundRect(x + ix, y + iy, w, h, rad);
+      ctx.fillStyle = color;
+      ctx.fill();
+    };
+
     ctx.save();
-    // Muddy rim
-    ctx.fillStyle = '#566B3E';
+    // Sandy outer bank (blends toward the grass at the rounded corners)
+    rr(gs * 0.04, gs * 0.04, gs * 0.92, gs * 0.92, gs * 0.34, '#9C8A5E');
+    // Damp mud ring
+    rr(gs * 0.12, gs * 0.12, gs * 0.76, gs * 0.76, gs * 0.32, '#6E5C3C');
+    // Water
+    rr(gs * 0.2, gs * 0.2, gs * 0.6, gs * 0.6, gs * 0.3, '#3F72A8');
+    // Lighter shallows + a highlight
+    rr(gs * 0.26, gs * 0.28, gs * 0.4, gs * 0.34, gs * 0.18, '#5A8BC0');
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
     ctx.beginPath();
-    ctx.ellipse(x, y, rx * 1.08, ry * 1.08, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // Water body (irregular: two overlapping ellipses)
-    ctx.fillStyle = '#3F72A8';
-    ctx.beginPath();
-    ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(x + rx * 0.28, y - ry * 0.18, rx * 0.7, ry * 0.7, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // Lighter shallows + highlight
-    ctx.fillStyle = '#5A8BC0';
-    ctx.beginPath();
-    ctx.ellipse(x - rx * 0.18, y - ry * 0.12, rx * 0.5, ry * 0.45, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.beginPath();
-    ctx.ellipse(x - rx * 0.3, y - ry * 0.28, rx * 0.22, ry * 0.12, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + gs * 0.38, y + gs * 0.36, gs * 0.12, gs * 0.05, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
@@ -164,7 +154,8 @@ export class GridRenderer {
     renderCtx: RenderingContext,
     gridSize: number,
     showGrid: boolean,
-    occupiedCells?: Set<string>
+    occupiedCells?: Set<string>,
+    waterCells?: Set<string>
   ): void {
     const ctx = renderCtx.getContext();
     const bounds = renderCtx.getVisibleBounds();
@@ -189,17 +180,19 @@ export class GridRenderer {
 
     this.initializeTrees(12345, gridSize);
 
-    // Ponds — flat water on the ground (drawn under the world transform, so
-    // they project correctly in both views). Skip cells occupied by track.
-    ctx.save();
-    for (const p of this.pondPositions) {
-      if (p.x < startX - gridSize || p.x > endX + gridSize || p.y < startY - gridSize || p.y > endY + gridSize) continue;
-      const pgx = Math.floor(p.x / gridSize);
-      const pgy = Math.floor(p.y / gridSize);
-      if (occupiedCells?.has(`${pgx},${pgy}`)) continue;
-      this.drawPond(ctx, p.x, p.y, p.rx, p.ry);
+    // Water terrain cells (drawn under the world transform, so they project
+    // with the ground in both views).
+    if (waterCells && waterCells.size > 0) {
+      ctx.save();
+      for (const key of waterCells) {
+        const [gx, gy] = key.split(',').map(Number);
+        const wx = gx * gridSize;
+        const wy = gy * gridSize;
+        if (wx < startX - gridSize || wx > endX + gridSize || wy < startY - gridSize || wy > endY + gridSize) continue;
+        this.drawWaterCell(ctx, gx, gy, gridSize);
+      }
+      ctx.restore();
     }
-    ctx.restore();
 
     // Trees + bushes. In top-down they are flat ground decals drawn here; in
     // iso they have height and are drawn in the depth-sorted tall phase (see

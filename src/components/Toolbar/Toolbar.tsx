@@ -101,6 +101,13 @@ export function Toolbar() {
               >
                 🚦 Signal
               </button>
+              <button
+                onClick={() => setSelectedTool({ type: 'water' })}
+                className={getButtonClass({ type: 'water' })}
+                title="Placer de l'eau (étang)"
+              >
+                💧 Eau
+              </button>
             </div>
 
             <div className="flex gap-2">

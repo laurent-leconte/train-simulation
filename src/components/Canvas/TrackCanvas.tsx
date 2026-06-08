@@ -81,6 +81,7 @@ export function TrackCanvas() {
   const updateSwitch = useStore((state) => state.updateSwitch);
   // const removeSwitch = useStore((state) => state.removeSwitch);
   const addStation = useStore((state) => state.addStation);
+  const toggleWaterCell = useStore((state) => state.toggleWaterCell);
 
   // Setup canvas
   useEffect(() => {
@@ -208,7 +209,7 @@ export function TrackCanvas() {
     }
 
     // Render grid
-    gridRendererRef.current.render(renderCtx, gridSize, showGrid, occupiedCells);
+    gridRendererRef.current.render(renderCtx, gridSize, showGrid, occupiedCells, circuitGraph.water);
 
     // Render track segments
     trackRendererRef.current.renderAll(circuitGraph.edges, renderCtx, selectedElement);
@@ -540,6 +541,24 @@ export function TrackCanvas() {
         return;
       }
 
+      // Handle water tool - toggle a water cell (not on a cell occupied by track)
+      if (mode === 'edit' && selectedTool.type === 'water' && e.button === 0) {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const screenPos = new Vector2D(e.clientX - rect.left, e.clientY - rect.top);
+        const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height, viewMode);
+        const worldPos = renderCtx.screenToWorld(screenPos);
+        const { gridX, gridY } = GridCircuitBuilder.worldToGrid(worldPos, gridSize);
+        const key = `${gridX},${gridY}`;
+        // Don't put water under existing track
+        if (!circuitGraph.water.has(key) && GridCircuitBuilder.trackExistsAt(gridX, gridY, circuitGraph.edges)) {
+          return;
+        }
+        toggleWaterCell(key);
+        return;
+      }
+
       // Handle switch tool - place or toggle switch
       if (mode === 'edit' && selectedTool.type === 'switch' && e.button === 0) {
         const canvas = canvasRef.current;
@@ -713,12 +732,17 @@ export function TrackCanvas() {
         e.preventDefault();
       }
     },
-    [mode, selectedTool, handleClick, viewport, circuitGraph, simulation.trains, addTrain, setSimulationRunning, findJunctionNodeAt, createSwitchAtNode, updateSwitch, gridSize, addStation, stationPreview, viewMode]
+    [mode, selectedTool, handleClick, viewport, circuitGraph, simulation.trains, addTrain, setSimulationRunning, findJunctionNodeAt, createSwitchAtNode, updateSwitch, gridSize, addStation, stationPreview, viewMode, toggleWaterCell]
   );
 
   // Helper function to place a track at a grid position
   const placeTrackAtCell = useCallback(
     (cellX: number, cellY: number, orientation: RailOrientation) => {
+      // Can't build track on a water cell (bridges come later)
+      if (circuitGraph.water.has(`${cellX},${cellY}`)) {
+        return;
+      }
+
       // Check if track would conflict with existing tracks (same edge used)
       // This allows Y-junctions where multiple tracks share a cell but use different edges
       if (GridCircuitBuilder.trackWouldConflict(cellX, cellY, orientation, gridSize, circuitGraph.edges)) {

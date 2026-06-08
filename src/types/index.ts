@@ -29,6 +29,7 @@ export type ToolType =
   | { type: 'switch' }
   | { type: 'station' }
   | { type: 'signal' }
+  | { type: 'water' }
   | { type: 'train' }
   | { type: 'delete' };
 

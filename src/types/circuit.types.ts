@@ -94,6 +94,8 @@ export interface CircuitGraph {
   switches: Map<string, Switch>;
   stations: Map<string, Station>;
   signals: Map<string, Signal>;
+  /** Terrain water cells, keyed by "gridX,gridY". Rail can't be built on them. */
+  water: Set<string>;
 }
 
 /**

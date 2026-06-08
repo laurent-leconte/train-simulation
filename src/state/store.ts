@@ -64,6 +64,7 @@ interface AppState {
   addSignal: (signal: Signal) => void;
   removeSignal: (id: string) => void;
   updateSignal: (id: string, state: SignalState) => void;
+  toggleWaterCell: (key: string) => void;
   clearCircuit: () => void;
 
   // Train actions
@@ -104,6 +105,7 @@ const initialCircuitState: CircuitState = {
     switches: new Map(),
     stations: new Map(),
     signals: new Map(),
+    water: new Set(),
   },
 };
 
@@ -213,6 +215,15 @@ export const useStore = create<AppState>()(
         }
       }),
 
+    toggleWaterCell: (key) =>
+      set((state) => {
+        if (state.circuit.graph.water.has(key)) {
+          state.circuit.graph.water.delete(key);
+        } else {
+          state.circuit.graph.water.add(key);
+        }
+      }),
+
     clearCircuit: () =>
       set((state) => {
         state.circuit.graph.nodes.clear();
@@ -220,6 +231,7 @@ export const useStore = create<AppState>()(
         state.circuit.graph.switches.clear();
         state.circuit.graph.stations.clear();
         state.circuit.graph.signals.clear();
+        state.circuit.graph.water.clear();
         // Also clear trains and reset simulation
         state.simulation.trains.clear();
         state.simulation.isRunning = false;

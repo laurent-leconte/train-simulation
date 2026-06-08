@@ -20,10 +20,23 @@ const PLATFORM_OFFSET = 8; // Distance from track center to platform edge (close
 const BUILDING_WIDTH = 18; // Width of station buildings
 const BUILDING_OFFSET = PLATFORM_OFFSET + PLATFORM_WIDTH + 2; // Buildings behind platform
 
+interface BuildingGeometry {
+  center: Vector2D;
+  direction: Vector2D;
+  perpendicular: Vector2D;
+  sideMultiplier: number;
+  length: number;
+  depth: number;
+  isMiddle: boolean;
+}
+
 /**
  * Renders stations on the canvas
  */
 export class StationRenderer {
+  // Cache of rendered name plaques, keyed by station name.
+  private signCache = new Map<string, HTMLCanvasElement>();
+
   /**
    * Render all stations
    */
@@ -98,25 +111,15 @@ export class StationRenderer {
         .map((id) => segments.get(id))
         .filter((s): s is TrackSegment => !!s);
 
+      const midIndex = Math.floor(segs.length / 2);
       for (let i = 0; i < segs.length; i++) {
         const segment = segs[i];
         const geom = this.buildingGeometry(segment, sideMultiplier, i, segs.length);
+        // The station name is painted on the main (middle) building's wall.
+        const name = i === midIndex ? station.name : undefined;
         drawables.push({
           depth: worldDepth(geom.center),
-          draw: () => this.drawBuildingIso(ctx, renderCtx, geom, isSelected),
-        });
-      }
-
-      // Nameboard on the platform, centered on the station.
-      const midSeg = segs[Math.floor(segs.length / 2)];
-      if (midSeg) {
-        const dir = midSeg.geometry.end.subtract(midSeg.geometry.start).normalize();
-        const perp = new Vector2D(-dir.y, dir.x);
-        const cell = new Vector2D(midSeg.gridX * GRID_SIZE + GRID_SIZE / 2, midSeg.gridY * GRID_SIZE + GRID_SIZE / 2);
-        const anchor = cell.add(perp.multiply(sideMultiplier * (PLATFORM_OFFSET + PLATFORM_WIDTH / 2)));
-        drawables.push({
-          depth: worldDepth(anchor) + 0.3,
-          draw: () => this.drawNameboard(ctx, renderCtx, anchor, station.name),
+          draw: () => this.drawBuildingIso(ctx, renderCtx, geom, isSelected, name),
         });
       }
     }
@@ -132,7 +135,7 @@ export class StationRenderer {
     sideMultiplier: number,
     cellIndex: number,
     totalCells: number
-  ): { center: Vector2D; direction: Vector2D; length: number; depth: number; isMiddle: boolean } {
+  ): BuildingGeometry {
     const cellCenterX = segment.gridX * GRID_SIZE + GRID_SIZE / 2;
     const cellCenterY = segment.gridY * GRID_SIZE + GRID_SIZE / 2;
 
@@ -149,7 +152,7 @@ export class StationRenderer {
       perpendicular.multiply(sideMultiplier * (BUILDING_OFFSET + BUILDING_WIDTH / 2))
     );
 
-    return { center, direction, length, depth, isMiddle };
+    return { center, direction, perpendicular, sideMultiplier, length, depth, isMiddle };
   }
 
   /**
@@ -159,8 +162,9 @@ export class StationRenderer {
   private drawBuildingIso(
     ctx: CanvasRenderingContext2D,
     renderCtx: RenderingContext,
-    geom: { center: Vector2D; direction: Vector2D; length: number; depth: number; isMiddle: boolean },
-    isSelected: boolean
+    geom: BuildingGeometry,
+    isSelected: boolean,
+    name?: string
   ): void {
     const wallHeight = geom.isMiddle ? BUILDING_HEIGHT_MAIN : BUILDING_HEIGHT;
     const roofHeight = geom.isMiddle ? ROOF_HEIGHT_MAIN : ROOF_HEIGHT;
@@ -221,55 +225,86 @@ export class StationRenderer {
       );
       drawIsoVCylinder(ctx, renderCtx, cc, geom.depth * 0.1, ridgeZ - 1, ridgeZ + 6, '#6E4A3A', { outline: true });
     }
+
+    // Station name painted on the platform-facing wall
+    if (name) this.drawWallName(ctx, renderCtx, geom, wallHeight, name);
   }
 
   /**
-   * Draw a station nameboard: two posts and a panel with the station name as
-   * upright, screen-facing text (kept legible rather than skewed into the iso
-   * plane). `anchor` is the world position on the platform.
+   * Render the station name to a cached offscreen canvas (a plaque with text).
    */
-  private drawNameboard(
+  private getSignCanvas(name: string): HTMLCanvasElement {
+    let c = this.signCache.get(name);
+    if (c) return c;
+    c = document.createElement('canvas');
+    const fs = 40;
+    const padX = 16;
+    const padY = 8;
+    const measure = c.getContext('2d')!;
+    measure.font = `bold ${fs}px Georgia, serif`;
+    c.width = Math.ceil(measure.measureText(name).width) + padX * 2;
+    c.height = fs + padY * 2;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#23351F'; // dark green plaque
+    g.fillRect(0, 0, c.width, c.height);
+    g.strokeStyle = '#E8E0C0';
+    g.lineWidth = 3;
+    g.strokeRect(2.5, 2.5, c.width - 5, c.height - 5);
+    g.fillStyle = '#F3EFDE';
+    g.font = `bold ${fs}px Georgia, serif`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(name, c.width / 2, c.height / 2 + 2);
+    this.signCache.set(name, c);
+    return c;
+  }
+
+  /**
+   * Paint the station name onto the platform-facing wall, warped into the iso
+   * plane via an affine map of the sign image onto the wall parallelogram.
+   * Only drawn when that wall faces the camera.
+   */
+  private drawWallName(
     ctx: CanvasRenderingContext2D,
     renderCtx: RenderingContext,
-    anchor: Vector2D,
+    geom: BuildingGeometry,
+    wallHeight: number,
     name: string
   ): void {
-    const z = renderCtx.getViewport().zoom;
-    const boardZ = 14; // height of the board above the platform
-    const ground = renderCtx.project(anchor, 0);
-    const center = renderCtx.project(anchor, boardZ);
+    // Outward normal of the platform-facing wall (toward the track).
+    const nx = -geom.perpendicular.x * geom.sideMultiplier;
+    const ny = -geom.perpendicular.y * geom.sideMultiplier;
+    if (nx + ny <= 0.2) return; // wall faces away / too edge-on to read
 
-    const fontSize = Math.max(5, 6.5 * z);
+    const wallMid = new Vector2D(geom.center.x + nx * (geom.depth / 2), geom.center.y + ny * (geom.depth / 2));
+    const dir = geom.direction;
+    const end1 = new Vector2D(wallMid.x + dir.x * (geom.length / 2), wallMid.y + dir.y * (geom.length / 2));
+    const end2 = new Vector2D(wallMid.x - dir.x * (geom.length / 2), wallMid.y - dir.y * (geom.length / 2));
+    // Order ends left→right on screen so the text reads correctly.
+    const s1 = renderCtx.project(end1, 0);
+    const s2 = renderCtx.project(end2, 0);
+    const left = s1.x <= s2.x ? end1 : end2;
+    const right = s1.x <= s2.x ? end2 : end1;
+    const lerp = (a: Vector2D, b: Vector2D, t: number) => new Vector2D(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
+
+    // Sign band on the upper part of the wall, just under the eaves.
+    const uA = 0.1;
+    const uB = 0.9;
+    const vTop = 0.94;
+    const vBot = 0.68;
+    const A = renderCtx.project(lerp(left, right, uA), vTop * wallHeight); // image (0,0)
+    const B = renderCtx.project(lerp(left, right, uB), vTop * wallHeight); // image (w,0)
+    const C = renderCtx.project(lerp(left, right, uA), vBot * wallHeight); // image (0,h)
+
+    const img = this.getSignCanvas(name);
+    const a = (B.x - A.x) / img.width;
+    const b = (B.y - A.y) / img.width;
+    const c2 = (C.x - A.x) / img.height;
+    const d = (C.y - A.y) / img.height;
+
     ctx.save();
-    ctx.font = `bold ${fontSize}px sans-serif`;
-    const textW = ctx.measureText(name).width;
-    const panelW = textW + 8 * z;
-    const panelH = fontSize + 6 * z;
-    const left = center.x - panelW / 2;
-    const top = center.y - panelH / 2;
-
-    // Posts from the ground up to the panel
-    ctx.strokeStyle = '#5a4632';
-    ctx.lineWidth = Math.max(1.2, z * 1.3);
-    for (const ox of [-panelW * 0.32, panelW * 0.32]) {
-      ctx.beginPath();
-      ctx.moveTo(ground.x + ox, ground.y);
-      ctx.lineTo(center.x + ox, top + panelH);
-      ctx.stroke();
-    }
-
-    // Panel
-    ctx.fillStyle = '#2E4A2E';
-    ctx.fillRect(left, top, panelW, panelH);
-    ctx.strokeStyle = '#CDD6CD';
-    ctx.lineWidth = Math.max(1, z * 0.8);
-    ctx.strokeRect(left, top, panelW, panelH);
-
-    // Name
-    ctx.fillStyle = '#F5F5E8';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(name, center.x, center.y + 0.5 * z);
+    ctx.transform(a, b, c2, d, A.x, A.y);
+    ctx.drawImage(img, 0, 0);
     ctx.restore();
   }
 
