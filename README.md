@@ -75,22 +75,26 @@ _(À venir dans les prochaines phases)_
 ✅ Suppression de rails avec outil dédié
 ✅ Gestion des nœuds et graphe du circuit
 
-## Fonctionnalités à venir
+## Prochaines étapes
 
-- Phase 3: Aiguillages, gares, signaux
-- Phase 4: Train avec physique réaliste
-- Phase 5: Logique de simulation avancée
-- Phase 6: Save/Load, optimisations
+1. **Améliorer le rendu des étangs / plans d'eau**
+2. **Gérer l'eau multi-cellules** : fusionner les cellules adjacentes en un seul plan d'eau continu
+3. **Ajouter un train « TGV »** (locomotive/rame moderne)
+4. **Simplifier la navigation et les menus**
+5. **Améliorer le tracé des rails** : revenir en arrière efface, garantir la continuité du tracé
+6. **Ajouter des ponts** : poser des rails au-dessus de l'eau
+7. **Améliorer le rendu des gares** (surtout le panneau de nom) et rendre le nom **éditable**
+8. **Ajouter des animations** (voyageurs dans la gare, etc.)
+9. **Gérer le cycle jour / nuit** (éclairage)
+10. **Ajouter d'autres décors / types de tuiles** : montagnes, maisons, terrains variés
+11. **Améliorer les graphismes** : étudier l'usage de textures ou d'autres techniques
 
-## Idées en vrac
+### Idées de plus long terme
 
-- plusieurs trains
-- déclencheurs sur les rails, pour activer un signal ou un aiguillage
-- amélioration des visuels
-- jour / nuit
-- des gens montent / descendent du train à la gare
-- eau, montagne
-- ponts
+- Plusieurs trains simultanés
+- Déclencheurs sur les rails (activer un signal ou un aiguillage)
+- Signaux réellement intégrés à la simulation
+- Sauvegarde / chargement de circuits
 
 ## Architecture technique
 
