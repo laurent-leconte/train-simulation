@@ -1,5 +1,15 @@
 import { Vector2D } from '@/core/geometry/Vector2D';
-import { ViewportState } from '@/types';
+import { ViewportState, ViewMode } from '@/types';
+
+/**
+ * 2:1 dimetric ("isometric") projection matrix mapping world (x, y) to screen:
+ *   isoX = x - y
+ *   isoY = (x + y) / 2
+ * Expressed as the linear map [[a, c], [b, d]] (canvas transform order).
+ * This is affine, so flat ground geometry (rails, ties, grid) projects for free.
+ */
+const ISO_MATRIX = { a: 1, b: 0.5, c: -1, d: 0.5 } as const;
+const TOPDOWN_MATRIX = { a: 1, b: 0, c: 0, d: 1 } as const;
 
 /**
  * Rendering context wrapper for Canvas 2D
@@ -10,17 +20,44 @@ export class RenderingContext {
   private viewport: ViewportState;
   private canvasWidth: number;
   private canvasHeight: number;
+  private viewMode: ViewMode;
 
   constructor(
     ctx: CanvasRenderingContext2D,
     viewport: ViewportState,
     canvasWidth: number,
-    canvasHeight: number
+    canvasHeight: number,
+    viewMode: ViewMode = 'topdown'
   ) {
     this.ctx = ctx;
     this.viewport = viewport;
     this.canvasWidth = canvasWidth;
     this.canvasHeight = canvasHeight;
+    this.viewMode = viewMode;
+  }
+
+  /**
+   * Get the active projection matrix (world -> projected, pre zoom/pan).
+   */
+  private projection(): { a: number; b: number; c: number; d: number } {
+    return this.viewMode === 'iso' ? ISO_MATRIX : TOPDOWN_MATRIX;
+  }
+
+  /**
+   * Get the current view projection mode
+   */
+  getViewMode(): ViewMode {
+    return this.viewMode;
+  }
+
+  /**
+   * Project a world point + optional height into screen space.
+   * Height lifts the point along screen-up (negative screen Y) and is the
+   * only non-affine part of the projection — used by "tall" object renderers.
+   */
+  project(world: Vector2D, height = 0): Vector2D {
+    const screen = this.worldToScreen(world);
+    return new Vector2D(screen.x, screen.y - height * this.viewport.zoom);
   }
 
   /**
@@ -42,6 +79,7 @@ export class RenderingContext {
    */
   applyTransform(): void {
     const { zoom, pan } = this.viewport;
+    const { a, b, c, d } = this.projection();
 
     // Translate to center
     this.ctx.translate(this.canvasWidth / 2, this.canvasHeight / 2);
@@ -49,7 +87,10 @@ export class RenderingContext {
     // Apply zoom
     this.ctx.scale(zoom, zoom);
 
-    // Apply pan
+    // Apply projection (identity for top-down, dimetric shear for iso)
+    this.ctx.transform(a, b, c, d, 0, 0);
+
+    // Apply pan (in world space, so panning feels consistent across modes)
     this.ctx.translate(pan.x, pan.y);
   }
 
@@ -58,37 +99,59 @@ export class RenderingContext {
    */
   worldToScreen(point: Vector2D): Vector2D {
     const { zoom, pan } = this.viewport;
+    const { a, b, c, d } = this.projection();
 
-    const x = (point.x + pan.x) * zoom + this.canvasWidth / 2;
-    const y = (point.y + pan.y) * zoom + this.canvasHeight / 2;
+    // World -> (pan) -> projection -> zoom -> center
+    const px = point.x + pan.x;
+    const py = point.y + pan.y;
+    const projX = a * px + c * py;
+    const projY = b * px + d * py;
 
-    return new Vector2D(x, y);
+    return new Vector2D(
+      projX * zoom + this.canvasWidth / 2,
+      projY * zoom + this.canvasHeight / 2
+    );
   }
 
   /**
-   * Convert screen coordinates to world coordinates
+   * Convert screen coordinates to world coordinates (inverse of worldToScreen)
    */
   screenToWorld(point: Vector2D): Vector2D {
     const { zoom, pan } = this.viewport;
+    const { a, b, c, d } = this.projection();
 
-    const x = (point.x - this.canvasWidth / 2) / zoom - pan.x;
-    const y = (point.y - this.canvasHeight / 2) / zoom - pan.y;
+    // Undo center + zoom
+    const sx = (point.x - this.canvasWidth / 2) / zoom;
+    const sy = (point.y - this.canvasHeight / 2) / zoom;
 
-    return new Vector2D(x, y);
+    // Undo projection via inverse matrix
+    const det = a * d - b * c;
+    const ix = (d * sx - c * sy) / det;
+    const iy = (-b * sx + a * sy) / det;
+
+    // Undo pan
+    return new Vector2D(ix - pan.x, iy - pan.y);
   }
 
   /**
-   * Get visible world bounds
+   * Get visible world bounds as an axis-aligned bounding box.
+   * Under iso the viewport maps to a diamond in world space, so we take the
+   * AABB of all four projected screen corners to ensure full coverage.
    */
   getVisibleBounds(): { min: Vector2D; max: Vector2D } {
-    const topLeft = this.screenToWorld(Vector2D.zero());
-    const bottomRight = this.screenToWorld(
-      new Vector2D(this.canvasWidth, this.canvasHeight)
-    );
+    const corners = [
+      this.screenToWorld(Vector2D.zero()),
+      this.screenToWorld(new Vector2D(this.canvasWidth, 0)),
+      this.screenToWorld(new Vector2D(0, this.canvasHeight)),
+      this.screenToWorld(new Vector2D(this.canvasWidth, this.canvasHeight)),
+    ];
+
+    const xs = corners.map((c) => c.x);
+    const ys = corners.map((c) => c.y);
 
     return {
-      min: topLeft,
-      max: bottomRight,
+      min: new Vector2D(Math.min(...xs), Math.min(...ys)),
+      max: new Vector2D(Math.max(...xs), Math.max(...ys)),
     };
   }
 

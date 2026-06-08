@@ -35,5 +35,10 @@ export type ToolType =
 // Editor mode
 export type EditorMode = 'edit' | 'simulate';
 
+// View projection mode
+// 'topdown' = classic orthogonal overhead view (best for editing)
+// 'iso' = 2:1 dimetric/isometric projection (shows sides of objects)
+export type ViewMode = 'topdown' | 'iso';
+
 // Signal states
 export type SignalState = 'red' | 'yellow' | 'green';

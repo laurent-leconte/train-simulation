@@ -1,6 +1,11 @@
 import { Vector2D } from '@/core/geometry/Vector2D';
 import { Station, TrackSegment } from '@/types/circuit.types';
 import { RenderingContext } from '../RenderingContext';
+import { IsoDrawable, worldDepth, drawIsoOrientedBox } from '../iso';
+
+// Height of station buildings in world units (for iso extrusion)
+const BUILDING_HEIGHT = 20;
+const BUILDING_HEIGHT_MAIN = 28;
 
 const GRID_SIZE = 50;
 const PLATFORM_WIDTH = 12; // Width of platform (perpendicular to track)
@@ -22,21 +27,24 @@ export class StationRenderer {
     selectedId?: string | null
   ): void {
     const ctx = renderCtx.getContext();
+    const isTopDown = renderCtx.getViewMode() === 'topdown';
 
     for (const station of stations.values()) {
       const isSelected = station.id === selectedId;
-      this.renderStation(station, segments, ctx, isSelected);
+      this.renderStation(station, segments, ctx, isSelected, isTopDown);
     }
   }
 
   /**
-   * Render a single station (spanning multiple cells alongside track)
+   * Render a single station's ground elements (platforms always; buildings too
+   * in top-down — in iso, buildings are drawn in the depth-sorted tall phase).
    */
   private renderStation(
     station: Station,
     segments: Map<string, TrackSegment>,
     ctx: CanvasRenderingContext2D,
-    isSelected: boolean
+    isSelected: boolean,
+    drawBuildings: boolean
   ): void {
     if (station.segmentIds.length === 0) return;
 
@@ -51,14 +59,88 @@ export class StationRenderer {
 
     ctx.save();
 
-    // Draw platform for each cell
+    // Draw platform for each cell (flat ground decal — correct in both views)
     const sideMultiplier = station.side === 'left' ? -1 : 1;
 
     for (let i = 0; i < stationSegments.length; i++) {
-      this.drawCellPlatform(ctx, stationSegments[i], sideMultiplier, isSelected, i, stationSegments.length);
+      this.drawCellPlatform(ctx, stationSegments[i], sideMultiplier, isSelected);
+      if (drawBuildings) {
+        this.drawBuilding(ctx, stationSegments[i], sideMultiplier, isSelected, i, stationSegments.length);
+      }
     }
 
     ctx.restore();
+  }
+
+  /**
+   * Collect station buildings as depth-tagged iso boxes for the tall phase.
+   */
+  collectIsoDrawables(
+    stations: Map<string, Station>,
+    segments: Map<string, TrackSegment>,
+    renderCtx: RenderingContext,
+    selectedId?: string | null
+  ): IsoDrawable[] {
+    const ctx = renderCtx.getContext();
+    const drawables: IsoDrawable[] = [];
+
+    for (const station of stations.values()) {
+      const isSelected = station.id === selectedId;
+      const sideMultiplier = station.side === 'left' ? -1 : 1;
+      const segs = station.segmentIds
+        .map((id) => segments.get(id))
+        .filter((s): s is TrackSegment => !!s);
+
+      for (let i = 0; i < segs.length; i++) {
+        const segment = segs[i];
+        const geom = this.buildingGeometry(segment, sideMultiplier, i, segs.length);
+        drawables.push({
+          depth: worldDepth(geom.center),
+          draw: () =>
+            drawIsoOrientedBox(
+              ctx,
+              renderCtx,
+              geom.center,
+              geom.direction,
+              geom.length / 2,
+              geom.depth / 2,
+              geom.isMiddle ? BUILDING_HEIGHT_MAIN : BUILDING_HEIGHT,
+              isSelected ? '#9CA3AF' : '#6B7280',
+              { selected: isSelected }
+            ),
+        });
+      }
+    }
+
+    return drawables;
+  }
+
+  /**
+   * Shared building footprint geometry (world space) used by both views.
+   */
+  private buildingGeometry(
+    segment: TrackSegment,
+    sideMultiplier: number,
+    cellIndex: number,
+    totalCells: number
+  ): { center: Vector2D; direction: Vector2D; length: number; depth: number; isMiddle: boolean } {
+    const cellCenterX = segment.gridX * GRID_SIZE + GRID_SIZE / 2;
+    const cellCenterY = segment.gridY * GRID_SIZE + GRID_SIZE / 2;
+
+    const start = segment.geometry.start;
+    const end = segment.geometry.end;
+    const direction = end.subtract(start).normalize();
+    const perpendicular = new Vector2D(-direction.y, direction.x);
+
+    const isMiddle = totalCells > 1 && cellIndex === Math.floor(totalCells / 2);
+    const depth = isMiddle ? BUILDING_WIDTH + 6 : BUILDING_WIDTH;
+    const length = GRID_SIZE - 4;
+
+    const center = new Vector2D(cellCenterX, cellCenterY).add(
+      perpendicular.multiply(sideMultiplier * (BUILDING_OFFSET + BUILDING_WIDTH / 2))
+    );
+
+    return { center, direction, length, depth, isMiddle };
   }
 
   /**
@@ -68,9 +150,7 @@ export class StationRenderer {
     ctx: CanvasRenderingContext2D,
     segment: TrackSegment,
     sideMultiplier: number,
-    isSelected: boolean,
-    cellIndex: number,
-    totalCells: number
+    isSelected: boolean
   ): void {
     const cellCenterX = segment.gridX * GRID_SIZE + GRID_SIZE / 2;
     const cellCenterY = segment.gridY * GRID_SIZE + GRID_SIZE / 2;
@@ -109,9 +189,6 @@ export class StationRenderer {
     ctx.strokeRect(-GRID_SIZE / 2, -PLATFORM_WIDTH / 2, GRID_SIZE, PLATFORM_WIDTH);
 
     ctx.restore();
-
-    // Draw building behind platform (not for every cell, creates varied look)
-    this.drawBuilding(ctx, segment, sideMultiplier, isSelected, cellIndex, totalCells);
   }
 
   /**

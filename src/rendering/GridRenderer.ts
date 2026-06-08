@@ -1,4 +1,6 @@
+import { Vector2D } from '@/core/geometry/Vector2D';
 import { RenderingContext } from './RenderingContext';
+import { IsoDrawable, worldDepth, shade } from './iso';
 
 /**
  * Renders background scenery and grid on the canvas
@@ -140,18 +142,22 @@ export class GridRenderer {
 
     ctx.restore();
 
-    // Initialize and draw trees
+    // Initialize trees. In top-down they are flat ground decals drawn here;
+    // in iso they have height and are drawn in the depth-sorted tall phase
+    // (see collectIsoTrees), so we skip them here.
     this.initializeTrees(12345, gridSize);
 
-    ctx.save();
-    // Draw trees that are in view
-    for (const tree of this.treePositions) {
-      if (tree.x >= startX - 20 && tree.x <= endX + 20 &&
-          tree.y >= startY - 20 && tree.y <= endY + 20) {
-        this.drawTree(ctx, tree.x, tree.y, tree.type);
+    if (renderCtx.getViewMode() === 'topdown') {
+      ctx.save();
+      // Draw trees that are in view
+      for (const tree of this.treePositions) {
+        if (tree.x >= startX - 20 && tree.x <= endX + 20 &&
+            tree.y >= startY - 20 && tree.y <= endY + 20) {
+          this.drawTree(ctx, tree.x, tree.y, tree.type);
+        }
       }
+      ctx.restore();
     }
-    ctx.restore();
 
     // Draw grid lines if enabled
     if (showGrid) {
@@ -179,5 +185,93 @@ export class GridRenderer {
 
       ctx.restore();
     }
+  }
+
+  /**
+   * Collect in-view trees as depth-tagged billboards for the iso tall phase.
+   */
+  collectIsoTrees(renderCtx: RenderingContext, gridSize: number): IsoDrawable[] {
+    const ctx = renderCtx.getContext();
+    const bounds = renderCtx.getVisibleBounds();
+    this.initializeTrees(12345, gridSize);
+
+    const drawables: IsoDrawable[] = [];
+    for (const tree of this.treePositions) {
+      if (
+        tree.x >= bounds.min.x - 20 && tree.x <= bounds.max.x + 20 &&
+        tree.y >= bounds.min.y - 20 && tree.y <= bounds.max.y + 20
+      ) {
+        const t = tree; // capture
+        drawables.push({
+          depth: worldDepth(new Vector2D(t.x, t.y)),
+          draw: () => this.drawTreeIso(ctx, renderCtx, t.x, t.y, t.type),
+        });
+      }
+    }
+    return drawables;
+  }
+
+  /**
+   * Draw a tree as an upright billboard anchored at its projected base.
+   */
+  private drawTreeIso(
+    ctx: CanvasRenderingContext2D,
+    renderCtx: RenderingContext,
+    worldX: number,
+    worldY: number,
+    type: number
+  ): void {
+    const z = renderCtx.getViewport().zoom;
+    const base = renderCtx.worldToScreen(new Vector2D(worldX, worldY));
+    const trunkH = 8 * z;
+
+    ctx.save();
+
+    // Soft ground shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.beginPath();
+    ctx.ellipse(base.x, base.y, 7 * z, 3.5 * z, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Trunk
+    ctx.fillStyle = '#5b3a1a';
+    ctx.fillRect(base.x - 1.5 * z, base.y - trunkH, 3 * z, trunkH);
+
+    const topY = base.y - trunkH;
+
+    if (type === 0) {
+      // Pine — stacked triangles
+      const drawCone = (cy: number, w: number, h: number, color: string) => {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(base.x, cy - h);
+        ctx.lineTo(base.x - w, cy);
+        ctx.lineTo(base.x + w, cy);
+        ctx.closePath();
+        ctx.fill();
+      };
+      drawCone(topY, 9 * z, 12 * z, '#2F5233');
+      drawCone(topY - 7 * z, 7 * z, 11 * z, '#356039');
+    } else if (type === 1) {
+      // Round tree
+      ctx.fillStyle = '#3D6B3D';
+      ctx.beginPath();
+      ctx.arc(base.x, topY - 6 * z, 9 * z, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = shade('#3D6B3D', 1.25);
+      ctx.beginPath();
+      ctx.arc(base.x - 3 * z, topY - 8 * z, 3.5 * z, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Bush cluster
+      ctx.fillStyle = '#3A5F3A';
+      for (const [dx, dy, r] of [[-4, 0, 5], [4, 0, 5], [0, -4, 5]] as const) {
+        ctx.beginPath();
+        ctx.arc(base.x + dx * z, topY + dy * z, r * z, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
   }
 }

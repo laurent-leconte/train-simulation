@@ -1,18 +1,27 @@
+import { Vector2D } from '@/core/geometry/Vector2D';
 import { Train, CarriagePosition } from '@/types/train.types';
 import { RenderingContext } from '../RenderingContext';
+import { IsoDrawable, worldDepth, drawIsoOrientedBox, shade } from '../iso';
+
+// Heights in world units for iso extrusion
+const LOCO_HEIGHT = 14;
+const CARRIAGE_HEIGHT = 11;
 
 /**
  * Renders trains on the canvas
  */
 export class TrainRenderer {
   /**
-   * Render all trains
+   * Render all trains (top-down flat view). In iso, trains are drawn in the
+   * depth-sorted tall phase via collectIsoDrawables, so this is a no-op there.
    */
   renderAll(
     trains: Map<string, Train>,
     renderCtx: RenderingContext,
     selectedId?: string | null
   ): void {
+    if (renderCtx.getViewMode() !== 'topdown') return;
+
     const ctx = renderCtx.getContext();
 
     for (const train of trains.values()) {
@@ -22,6 +31,125 @@ export class TrainRenderer {
       // Render locomotive on top
       this.renderTrain(train, ctx, isSelected);
     }
+  }
+
+  /**
+   * Collect locomotive + carriages as depth-tagged iso boxes for the tall phase.
+   * Each car sorts independently so a train correctly weaves behind buildings.
+   */
+  collectIsoDrawables(
+    trains: Map<string, Train>,
+    renderCtx: RenderingContext,
+    selectedId?: string | null
+  ): IsoDrawable[] {
+    const ctx = renderCtx.getContext();
+    const drawables: IsoDrawable[] = [];
+    const carriageColors = ['#8B4513', '#2F4F4F', '#4A4A4A'];
+
+    for (const train of trains.values()) {
+      const isSelected = train.id === selectedId;
+
+      // Carriages
+      (train.carriagePositions ?? []).forEach((cp, i) => {
+        drawables.push({
+          depth: worldDepth(cp.worldPosition),
+          draw: () =>
+            drawIsoOrientedBox(
+              ctx,
+              renderCtx,
+              cp.worldPosition,
+              cp.direction,
+              train.carriageLength / 2,
+              train.width / 2,
+              CARRIAGE_HEIGHT,
+              carriageColors[i % carriageColors.length]
+            ),
+        });
+      });
+
+      // Locomotive
+      const pos = train.position;
+      drawables.push({
+        depth: worldDepth(pos.worldPosition) + 0.01, // slight bias: loco over its tender
+        draw: () => this.drawLocomotiveIso(ctx, renderCtx, train, isSelected),
+      });
+    }
+
+    return drawables;
+  }
+
+  /**
+   * Draw the locomotive as an iso box with a cab, chimney and steam.
+   */
+  private drawLocomotiveIso(
+    ctx: CanvasRenderingContext2D,
+    renderCtx: RenderingContext,
+    train: Train,
+    isSelected: boolean
+  ): void {
+    const { worldPosition, direction } = train.position;
+
+    // Main body
+    drawIsoOrientedBox(
+      ctx,
+      renderCtx,
+      worldPosition,
+      direction,
+      train.length / 2,
+      train.width / 2,
+      LOCO_HEIGHT,
+      train.color || '#8B0000',
+      { selected: isSelected }
+    );
+
+    // Chimney: a small box near the front, sitting on top of the body
+    const front = new Vector2D(
+      worldPosition.x + direction.x * (train.length * 0.32),
+      worldPosition.y + direction.y * (train.length * 0.32)
+    );
+    drawIsoOrientedBox(
+      ctx,
+      renderCtx,
+      front,
+      direction,
+      train.width * 0.18,
+      train.width * 0.18,
+      LOCO_HEIGHT + 7,
+      '#2F4F4F'
+    );
+
+    // Steam puffs rising from the chimney top (screen space)
+    if (Math.abs(train.velocity) > 1) {
+      const z = renderCtx.getViewport().zoom;
+      const top = renderCtx.project(front, LOCO_HEIGHT + 7);
+      const time = Date.now() / 200;
+      for (let i = 0; i < 3; i++) {
+        const offset = (time + i * 1.5) % 4;
+        const alpha = Math.max(0, 1 - offset / 4);
+        ctx.fillStyle = `rgba(210,210,210,${alpha * 0.6})`;
+        ctx.beginPath();
+        ctx.arc(
+          top.x + offset * 2 * z,
+          top.y - offset * 6 * z,
+          (3 + offset) * z,
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+      }
+    }
+
+    // Headlamp glow at the very front
+    const z = renderCtx.getViewport().zoom;
+    const lampWorld = new Vector2D(
+      worldPosition.x + direction.x * (train.length / 2),
+      worldPosition.y + direction.y * (train.length / 2)
+    );
+    const lamp = renderCtx.project(lampWorld, LOCO_HEIGHT * 0.5);
+    ctx.fillStyle = shade('#FFFF66', 1);
+    ctx.beginPath();
+    ctx.arc(lamp.x, lamp.y, 2 * z, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   /**

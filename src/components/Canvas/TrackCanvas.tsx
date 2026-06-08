@@ -7,6 +7,7 @@ import { TrackRenderer } from '@/rendering/renderers/TrackRenderer';
 import { TrainRenderer } from '@/rendering/renderers/TrainRenderer';
 import { SwitchRenderer } from '@/rendering/renderers/SwitchRenderer';
 import { StationRenderer } from '@/rendering/renderers/StationRenderer';
+import { IsoDrawable } from '@/rendering/iso';
 import { GridCircuitBuilder } from '@/services/GridCircuitBuilder';
 import { TrainPhysics } from '@/services/TrainPhysics';
 import { TrainPathFollower } from '@/services/TrainPathFollower';
@@ -65,6 +66,7 @@ export function TrackCanvas() {
   const selectedTool = useStore((state) => state.editor.selectedTool);
   const selectedElement = useStore((state) => state.editor.selectedElement);
   const mode = useStore((state) => state.editor.mode);
+  const viewMode = useStore((state) => state.editor.viewMode);
   const circuitGraph = useStore((state) => state.circuit.graph);
   const simulation = useStore((state) => state.simulation);
   const updateTrain = useStore((state) => state.updateTrain);
@@ -189,7 +191,7 @@ export function TrackCanvas() {
     if (!ctx) return;
 
     const rect = canvas.getBoundingClientRect();
-    const renderCtx = new RenderingContext(ctx, viewport, rect.width, rect.height);
+    const renderCtx = new RenderingContext(ctx, viewport, rect.width, rect.height, viewMode);
 
     // Clear canvas
     renderCtx.clear('#1f2937');
@@ -316,12 +318,35 @@ export function TrackCanvas() {
       ctx.restore();
     }
 
-    // Restore state
+    // Restore state (back to screen space)
     renderCtx.restore();
+
+    // Iso tall phase: objects with height are drawn in screen space, sorted
+    // back-to-front so trains correctly pass behind buildings and trees.
+    if (viewMode === 'iso') {
+      const drawables: IsoDrawable[] = [
+        ...gridRendererRef.current.collectIsoTrees(renderCtx, gridSize),
+        ...stationRendererRef.current.collectIsoDrawables(
+          circuitGraph.stations,
+          circuitGraph.edges,
+          renderCtx,
+          selectedElement
+        ),
+        ...trainRendererRef.current.collectIsoDrawables(
+          simulation.trains,
+          renderCtx,
+          selectedElement
+        ),
+      ];
+      drawables.sort((a, b) => a.depth - b.depth);
+      ctx.save();
+      for (const d of drawables) d.draw();
+      ctx.restore();
+    }
 
     // Render UI overlay (zoom level, etc.)
     renderOverlay(ctx, rect.width, rect.height);
-  }, [viewport, showGrid, gridSize, circuitGraph, selectedElement, hoveredGridCell, mode, selectedTool, simulation.trains, dragState, stationPreview]);
+  }, [viewport, showGrid, gridSize, circuitGraph, selectedElement, hoveredGridCell, mode, selectedTool, simulation.trains, dragState, stationPreview, viewMode]);
 
   // Render overlay (UI elements in screen space)
   const renderOverlay = (
@@ -370,7 +395,7 @@ export function TrackCanvas() {
 
       const rect = canvas.getBoundingClientRect();
       const screenPos = new Vector2D(e.clientX - rect.left, e.clientY - rect.top);
-      const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height);
+      const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height, viewMode);
       const worldPos = renderCtx.screenToWorld(screenPos);
 
       // Convert to grid coordinates
@@ -391,7 +416,7 @@ export function TrackCanvas() {
         }
       }
     },
-    [mode, selectedTool, viewport, gridSize, circuitGraph]
+    [mode, selectedTool, viewport, gridSize, circuitGraph, viewMode]
   );
 
   // Helper to find a junction node near a world position
@@ -506,7 +531,7 @@ export function TrackCanvas() {
 
         const rect = canvas.getBoundingClientRect();
         const screenPos = new Vector2D(e.clientX - rect.left, e.clientY - rect.top);
-        const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height);
+        const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height, viewMode);
         const worldPos = renderCtx.screenToWorld(screenPos);
 
         // First check if clicking on existing switch to toggle it
@@ -539,7 +564,7 @@ export function TrackCanvas() {
 
         const rect = canvas.getBoundingClientRect();
         const screenPos = new Vector2D(e.clientX - rect.left, e.clientY - rect.top);
-        const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height);
+        const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height, viewMode);
         const worldPos = renderCtx.screenToWorld(screenPos);
 
         // Convert to grid coordinates
@@ -594,7 +619,7 @@ export function TrackCanvas() {
 
         const rect = canvas.getBoundingClientRect();
         const screenPos = new Vector2D(e.clientX - rect.left, e.clientY - rect.top);
-        const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height);
+        const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height, viewMode);
         const worldPos = renderCtx.screenToWorld(screenPos);
 
         // First check if clicking on a switch to toggle it
@@ -672,7 +697,7 @@ export function TrackCanvas() {
         e.preventDefault();
       }
     },
-    [mode, selectedTool, handleClick, viewport, circuitGraph, simulation.trains, addTrain, setSimulationRunning, findJunctionNodeAt, createSwitchAtNode, updateSwitch, gridSize, addStation, stationPreview]
+    [mode, selectedTool, handleClick, viewport, circuitGraph, simulation.trains, addTrain, setSimulationRunning, findJunctionNodeAt, createSwitchAtNode, updateSwitch, gridSize, addStation, stationPreview, viewMode]
   );
 
   // Helper function to place a track at a grid position
@@ -788,7 +813,7 @@ export function TrackCanvas() {
 
       const rect = canvas.getBoundingClientRect();
       const screenPos = new Vector2D(e.clientX - rect.left, e.clientY - rect.top);
-      const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height);
+      const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height, viewMode);
       const worldPos = renderCtx.screenToWorld(screenPos);
 
       // Convert to grid coordinates
@@ -904,7 +929,7 @@ export function TrackCanvas() {
         setLastMousePos(currentPos);
       }
     },
-    [isPanning, lastMousePos, viewport, adjustViewportPan, gridSize, dragState, circuitGraph, placeTrackAtCell, mode, selectedTool, stationPreview]
+    [isPanning, lastMousePos, viewport, adjustViewportPan, gridSize, dragState, circuitGraph, placeTrackAtCell, mode, selectedTool, stationPreview, viewMode]
   );
 
   // Mouse up handler (finish drawing and stop panning)
@@ -916,7 +941,7 @@ export function TrackCanvas() {
         if (canvas) {
           const rect = canvas.getBoundingClientRect();
           const screenPos = new Vector2D(e.clientX - rect.left, e.clientY - rect.top);
-          const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height);
+          const renderCtx = new RenderingContext(canvas.getContext('2d')!, viewport, rect.width, rect.height, viewMode);
           const worldPos = renderCtx.screenToWorld(screenPos);
 
           // Detect exit side for the final cell
@@ -951,7 +976,7 @@ export function TrackCanvas() {
 
       setIsPanning(false);
     },
-    [dragState, viewport, gridSize, placeTrackAtCell]
+    [dragState, viewport, gridSize, placeTrackAtCell, viewMode]
   );
 
   // Mouse leave handler (stop drawing and panning)

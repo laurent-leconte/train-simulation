@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { enableMapSet } from 'immer';
 import { Vector2D } from '@/core/geometry/Vector2D';
-import { ViewportState, ToolType, EditorMode, SignalState } from '@/types';
+import { ViewportState, ToolType, EditorMode, SignalState, ViewMode } from '@/types';
 import { CircuitState } from '@/types/circuit.types';
 import { Train } from '@/types/train.types';
 import { TrackSegment, TrackNode, Switch, Station, Signal } from '@/types/circuit.types';
@@ -31,6 +31,7 @@ interface EditorState {
   snapToGrid: boolean;
   gridSize: number;
   showGrid: boolean;
+  viewMode: ViewMode;
 }
 
 /**
@@ -83,6 +84,8 @@ interface AppState {
   setSnapToGrid: (snap: boolean) => void;
   setGridSize: (size: number) => void;
   setShowGrid: (show: boolean) => void;
+  setViewMode: (mode: ViewMode) => void;
+  toggleViewMode: () => void;
 
   // UI actions
   setViewportZoom: (zoom: number) => void;
@@ -119,6 +122,7 @@ const initialEditorState: EditorState = {
   snapToGrid: true, // Always snap to grid
   gridSize: 50, // Larger grid cells for easier placement
   showGrid: true,
+  viewMode: 'topdown', // Start in top-down view (best for editing)
 };
 
 const initialUIState: UIState = {
@@ -305,6 +309,16 @@ export const useStore = create<AppState>()(
     setShowGrid: (show) =>
       set((state) => {
         state.editor.showGrid = show;
+      }),
+
+    setViewMode: (mode) =>
+      set((state) => {
+        state.editor.viewMode = mode;
+      }),
+
+    toggleViewMode: () =>
+      set((state) => {
+        state.editor.viewMode = state.editor.viewMode === 'topdown' ? 'iso' : 'topdown';
       }),
 
     // UI actions

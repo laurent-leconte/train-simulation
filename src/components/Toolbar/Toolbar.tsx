@@ -10,6 +10,8 @@ export function Toolbar() {
   const mode = useStore((state) => state.editor.mode);
   const setEditorMode = useStore((state) => state.setEditorMode);
   const clearCircuit = useStore((state) => state.clearCircuit);
+  const viewMode = useStore((state) => state.editor.viewMode);
+  const toggleViewMode = useStore((state) => state.toggleViewMode);
 
   const isToolActive = (tool: ToolType) => {
     return tool.type === selectedTool.type;
@@ -47,6 +49,17 @@ export function Toolbar() {
             }
           >
             Mode Simulation
+          </button>
+        </div>
+
+        {/* View projection toggle (available in both modes) */}
+        <div className="flex gap-2 border-r border-gray-700 pr-3">
+          <button
+            onClick={toggleViewMode}
+            className="px-4 py-2 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 font-medium"
+            title="Basculer entre vue de dessus et vue isométrique"
+          >
+            {viewMode === 'topdown' ? '🗺️ Vue: Dessus' : '⬛ Vue: Iso'}
           </button>
         </div>
 
